@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 #  Author: Angela Chapman
 #  Date: 8/6/2014
@@ -15,11 +15,12 @@ from sklearn.ensemble import RandomForestClassifier
 from KaggleWord2VecUtility import KaggleWord2VecUtility
 import pandas as pd
 import numpy as np
+import nltk
 
 if __name__ == '__main__':
-    train = pd.read_csv(os.path.join(os.path.dirname(__file__), 'data', 'labeledTrainData.tsv'), header=0, \
+    train = pd.read_csv(os.path.join(os.path.dirname(__file__), '..', 'data', 'labeledTrainData.tsv'), header=0, \
                     delimiter="\t", quoting=3)
-    test = pd.read_csv(os.path.join(os.path.dirname(__file__), 'data', 'testData.tsv'), header=0, delimiter="\t", \
+    test = pd.read_csv(os.path.join(os.path.dirname(__file__), '..', 'data', 'testData.tsv'), header=0, delimiter="\t", \
                    quoting=3 )
 
     print('The first review is:')
@@ -29,7 +30,7 @@ if __name__ == '__main__':
 
 
     print('Download text data sets. If you already have NLTK datasets downloaded, just close the Python download window...')
-    #nltk.download()  # Download text data sets, including stop words
+    nltk.download()  # Download text data sets, including stop words
 
     # Initialize an empty list to hold the clean reviews
     clean_train_reviews = []
