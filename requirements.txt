@@ -1,6 +1,6 @@
-numpy==1.9.2
+numpy
 scipy
 scikit-learn
 nltk
-pandas==0.16.0
+pandas
 beautifulsoup4
