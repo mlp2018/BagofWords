@@ -16,6 +16,26 @@ from KaggleWord2VecUtility import KaggleWord2VecUtility
 import pandas as pd
 import numpy as np
 import nltk
+import pathlib
+
+_FileNames =   
+    { 
+
+
+
+
+def _get_current_file_path() -> str:
+    return os.path.realpath(__path__)
+
+
+
+def _mk_config():
+    data_dir = Path(_get_current_file_path()) / '..' / 'data'
+    
+    _Configs =
+    { "data-dir", 
+    , "labeled", 
+    }
 
 if __name__ == '__main__':
     train = pd.read_csv(os.path.join(os.path.dirname(__file__), '..', 'data', 'labeledTrainData.tsv'), header=0, \
