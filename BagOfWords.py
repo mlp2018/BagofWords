@@ -41,11 +41,9 @@ if __name__ == '__main__':
     for i in range( 0, len(train["review"])):
         clean_train_reviews.append(" ".join(KaggleWord2VecUtility.review_to_wordlist(train["review"][i], True)))
 
-
     # ****** Create a bag of words from the training set
     #
     print("Creating the bag of words...\n")
-
 
     # Initialize the "CountVectorizer" object, which is scikit-learn's
     # bag of words tool.
@@ -69,7 +67,6 @@ if __name__ == '__main__':
     #
     print("Training the random forest (this may take a while)...")
 
-
     # Initialize a Random Forest classifier with 100 trees
     forest = RandomForestClassifier(n_estimators = 100)
 
@@ -78,8 +75,6 @@ if __name__ == '__main__':
     #
     # This may take a few minutes to run
     forest = forest.fit( train_data_features, train["sentiment"] )
-
-
 
     # Create an empty list and append the clean reviews one by one
     clean_test_reviews = []
@@ -103,5 +98,3 @@ if __name__ == '__main__':
     # Use pandas to write the comma-separated output file
     output.to_csv(os.path.join(os.path.dirname(__file__), 'data', 'Bag_of_Words_model.csv'), index=False, quoting=3)
     print("Wrote results to Bag_of_Words_model.csv")
-
-
