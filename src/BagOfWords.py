@@ -26,11 +26,10 @@ if __name__ == '__main__':
     print('The first review is:')
     print(train["review"][0])
 
-    input("Press Enter to continue...")
-
+    #input("Press Enter to continue...")
 
     print('Download text data sets. If you already have NLTK datasets downloaded, just close the Python download window...')
-    nltk.download()  # Download text data sets, including stop words
+    #nltk.download()  # Download text data sets, including stop words
 
     # Initialize an empty list to hold the clean reviews
     clean_train_reviews = []
@@ -97,5 +96,5 @@ if __name__ == '__main__':
     output = pd.DataFrame( data={"id":test["id"], "sentiment":result} )
 
     # Use pandas to write the comma-separated output file
-    output.to_csv(os.path.join(os.path.dirname(__file__), 'data', 'Bag_of_Words_model.csv'), index=False, quoting=3)
+    output.to_csv(os.path.join(os.path.dirname(__file__), '..', 'data', 'Bag_of_Words_model.csv'), index=False, quoting=3)
     print("Wrote results to Bag_of_Words_model.csv")
