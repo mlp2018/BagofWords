@@ -4,16 +4,16 @@
 # Copyright (C) 2014-2018 Angela Chapman
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the “Software”), to deal
+# of this software and associated documentation files (the "Software"), to deal
 # in the Software without restriction, including without limitation the rights
 # to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 # copies of the Software, and to permit persons to whom the Software is
 # furnished to do so, subject to the following conditions:
 #
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
 #
-# THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 # FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 # AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
@@ -42,7 +42,7 @@ from KaggleWord2VecUtility import KaggleWord2VecUtility
 _DEBUG = True
 
 
-def debug_print(*objects, sep='', end='\n', file=sys.stderr, flush=False):
+def debug_print(*objects, sep=' ', end='\n', file=sys.stderr, flush=False):
     """
     If ``_DEBUG`` is set to true, this function behaves just like the builtin
     :py:func:`print` except that it prints to stderr rather than to stdout by
@@ -62,13 +62,13 @@ _PROJECT_ROOT = _get_current_file_dir() / '..'
 
 # Where to find the data files.
 _DATA_FILE = {
-    'labeled' :
+    'labeled':
         _PROJECT_ROOT / 'data' / 'labeledTrainData.tsv',
-    'unlabeled' :
+    'unlabeled':
         _PROJECT_ROOT / 'data' / 'unlabeledTrainData.tsv',
-    'test' :
+    'test':
         _PROJECT_ROOT / 'data' / 'testData.tsv',
-    'result' :
+    'result':
         _PROJECT_ROOT / 'results' / 'Prediction.csv'
 }
 
@@ -95,7 +95,7 @@ def clean_up_reviews(reviews: Iterable[bytes]):
 
 
 def learn_vocabulary_and_transform(reviews: Iterable[str]) \
-    -> Tuple[scipy.sparse.csr_matrix, CountVectorizer]:
+        -> Tuple[scipy.sparse.csr_matrix, CountVectorizer]:
     """
     Given a list of "clean" reviews, converts them to feature vectors
     using a simple Bag of Words method. Returns both feature vectors
@@ -113,7 +113,7 @@ def learn_vocabulary_and_transform(reviews: Iterable[str]) \
 
 
 def train_random_forest(feature_vectors, sentiments) \
-    -> RandomForestClassifier:
+        -> RandomForestClassifier:
     """
     Returns a Random Forest trained on the provided data.
     """
@@ -129,7 +129,6 @@ def main():
     Uses the Bag of Words method to predict the sentiment labels in the test
     data file.
     """
-
     train_data = read_data('labeled')
     test_data = read_data('test')
     train_reviews = clean_up_reviews(train_data['review'])
@@ -144,10 +143,10 @@ def main():
     debug_print('[*] Predicting test labels...')
     result = forest.predict(test_data_features)
 
-    pd.DataFrame(data={"id" : test_data["id"], "sentiment" : result}) \
+    pd.DataFrame(data={"id": test_data["id"], "sentiment": result}) \
         .to_csv(_DATA_FILE['result'], index=False, quoting=3)
-    debug_print('[*] Results\'ve been written to "' \
-        + str(_DATA_FILE['result']) + '".')
+    debug_print('[*] Results\'ve been written to "'
+                + str(_DATA_FILE['result']) + '".')
 
 
 if __name__ == '__main__':
