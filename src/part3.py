@@ -46,7 +46,11 @@ def debug_print(*objects, sep='', end='\n', file=sys.stderr, flush=False):
 
 def _get_current_file_dir() -> Path:
     """Returns the directory of the script."""
-    return Path(os.path.realpath(__file__)).parent
+    try:
+        return Path(os.path.realpath(__file__)).parent
+    except(NameError):
+        return Path('')
+
 
 # Project root directory, i.e. the Github repo directory.
 _PROJECT_ROOT = _get_current_file_dir() / '..'
