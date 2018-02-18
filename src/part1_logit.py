@@ -9,7 +9,6 @@ import sys
 from pathlib import Path
 # import typing
 from typing import Iterable, Tuple
-
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.linear_model import LogisticRegression
 import scipy
@@ -137,3 +136,6 @@ def main():
         .to_csv(_DATA_FILE['result'], index=False, quoting=3)
     debug_print('[*] Results\'ve been written to "'
                 + str(_DATA_FILE['result']) + '".')
+    
+if __name__ == '__main__':
+    main()
