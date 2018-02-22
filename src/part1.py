@@ -24,14 +24,14 @@
 import os
 import sys
 from pathlib import Path
-# import typing
 from typing import Iterable, Tuple
 
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import StratifiedKFold
 import scipy
 import pandas as pd
-# import numpy as np
+import numpy as np
 # from nltk.corpus import stopwords
 
 # TODO: Clean up this messy module...
@@ -72,7 +72,9 @@ _DATA_FILE = {
     'test':
         _PROJECT_ROOT / 'data' / 'testData.tsv',
     'result':
-        _PROJECT_ROOT / 'results' / 'Prediction.csv'
+        _PROJECT_ROOT / 'results' / 'Prediction.csv',
+    'result_false':
+        _PROJECT_ROOT / 'results' / 'FalsePrediction.csv'
 }
 
 
@@ -92,9 +94,7 @@ def clean_up_reviews(reviews: Iterable[bytes]):
     converts the review to a list of lowercase words.
     """
     debug_print("[*] Cleaning and parsing the reviews...")
-    return map(
-        lambda x: ' '.join(KaggleWord2VecUtility.review_to_wordlist(x, True)),
-        reviews)
+    return map(lambda x: ' '.join(KaggleWord2VecUtility.review_to_wordlist(x, True)), reviews)
 
 
 def learn_vocabulary_and_transform(reviews: Iterable[str]) \
@@ -126,6 +126,20 @@ def train_random_forest(feature_vectors, sentiments) \
     # and the sentiment labels as the response variable
     return forest.fit(feature_vectors, sentiments)
 
+def evaluate_result(y_hat,y):
+    """
+    Given some predictions (nx2 array containing ids and predicted label), identifiers and known labels,
+    return accuracy of prediction and return list of wrongly classified examples
+    """
+
+    incorrect_idx = np.where(y != y_hat)
+
+    acc = (len(y)-len(incorrect_idx[0]))/len(y)
+
+    return acc,incorrect_idx
+
+
+
 
 def main():
     """
@@ -134,23 +148,45 @@ def main():
     """
     train_data = read_data('labeled')
     test_data = read_data('test')
-    train_reviews = clean_up_reviews(train_data['review'])
-    test_reviews = clean_up_reviews(test_data['review'])
+    train_reviews = list(clean_up_reviews(train_data['review']))
+    #test_reviews = clean_up_reviews(test_data['review'])
 
-    train_data_features, vectorizer = learn_vocabulary_and_transform(
-        train_reviews)
-    forest = train_random_forest(train_data_features, train_data['sentiment'])
-    test_data_features = vectorizer.transform(test_reviews)
+    skf = StratifiedKFold(n_splits=3, random_state=None, shuffle=True)
+    results = [[] for y in range(2)]
+    for idx, skf in enumerate(skf.split(train_reviews,train_data["sentiment"])):
+        debug_print('Processing fold number',idx+1)
+        train_index = skf[0]
+        test_index = skf[1]
+        split_train_reviews = [train_reviews[i] for i in train_index]
+        split_test_reviews = [train_reviews[i] for i in test_index]
 
-    # Use the random forest to make sentiment label predictions
-    debug_print('[*] Predicting test labels...')
-    result = forest.predict(test_data_features)
+        train_data_features, vectorizer = learn_vocabulary_and_transform(split_train_reviews)
+        forest = train_random_forest(train_data_features, train_data["sentiment"][train_index])
+        test_data_features = vectorizer.transform(split_test_reviews)
 
-    pd.DataFrame(data={"id": test_data["id"], "sentiment": result}) \
-        .to_csv(_DATA_FILE['result'], index=False, quoting=3)
+        # Use the random forest to make sentiment label predictions
+        debug_print('[*] Predicting test labels...')#implement counter and print fold number
+        results[0].extend(train_data["id"][test_index])
+        results[1].extend(forest.predict(test_data_features))
+
+    #results are in shuffeled order. sort ids and labels accordingly for both known and predicted labels
+    sorted_labels = train_data["sentiment"][np.argsort(train_data["id"])]
+    sorted_reviews = train_data["review"][np.argsort(train_data["id"])]
+    sorted_prediction = [results[1][i] for i in np.argsort(results[0])]
+
+    acc, idx = evaluate_result(sorted_labels, sorted_prediction)
+
+    debug_print('Overall accuracy on left-out data was',acc)
+
+    #save wrongly classified predictions for later inspection
+    pd.DataFrame(data={"review": sorted_reviews[idx[0]]}).to_csv(_DATA_FILE['result_false'], index=False, quoting=3, escapechar='\\')
+
+    pd.DataFrame(data={"id": results[0], "sentiment": results[1]}) \
+     .to_csv(_DATA_FILE['result'], index=False, quoting=3)
     debug_print('[*] Results\'ve been written to "'
-                + str(_DATA_FILE['result']) + '".')
+        + str(_DATA_FILE['result']) + '".')
 
 
 if __name__ == '__main__':
     main()
+
