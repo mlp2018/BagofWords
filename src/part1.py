@@ -94,7 +94,9 @@ def clean_up_reviews(reviews: Iterable[bytes]):
     converts the review to a list of lowercase words.
     """
     debug_print("[*] Cleaning and parsing the reviews...")
-    return map(lambda x: ' '.join(KaggleWord2VecUtility.review_to_wordlist(x, True)), reviews)
+    return map(
+        lambda x: ' '.join(KaggleWord2VecUtility.review_to_wordlist(x, True)),
+        reviews)
 
 
 def learn_vocabulary_and_transform(reviews: Iterable[str]) \
@@ -137,8 +139,6 @@ def evaluate_result(y_hat,y):
     acc = (len(y)-len(incorrect_idx[0]))/len(y)
 
     return acc,incorrect_idx
-
-
 
 
 def main():
@@ -189,4 +189,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
