@@ -436,8 +436,8 @@ class KMeansAverager(object):
             if i is not None:
                 bag_of_centroids[i] += 1
             else:
-                warnings.warn(('While creating a bag of centroids: {} is not '
-                               'in the word-index map.').format(repr(word)))
+                warnings.warn(('While creating a bag of centroids: {!r} is '
+                               'not in the word-index map.').format(word))
         return bag_of_centroids
 
     # NOTE: This uses the third option from here
@@ -458,7 +458,7 @@ class KMeansAverager(object):
         bags = np.zeros((num_reviews, self.kmeans.n_clusters), dtype='float32')
         for (review, bag) in zip(reviews, bags):
             KMeansAverager._make_bag_of_centroids(
-                review, self.word2centroid, bag)
+                review.split(), self.word2centroid, bag)
         return bags
 
     def fit_transform(self, reviews: Type[np.ndarray],
