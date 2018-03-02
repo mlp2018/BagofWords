@@ -45,7 +45,11 @@ from sklearn.ensemble import RandomForestClassifier
 # from sklearn.feature_extraction.text import VectorizerMixin
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics import roc_auc_score
-from sklearn.model_selection import StratifiedKFold
+
+if sys.version_info >= (3, 6):
+    from sklearn.model_selection import StratifiedKFold
+else:  # We have an old version of sklearn...
+    from sklearn.cross_validation import StratifiedKFold
 
 
 def _get_current_file_dir() -> Path:
