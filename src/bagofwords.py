@@ -228,7 +228,8 @@ def clean_up_reviews(reviews: Iterable[str],
     :param reviews:               Reviews to clean up.
     :type reviews:                Iterable[str]
     :param bool remove_stopwords: Whether to remove the stopwords.
-    :param bool compute_only:     Whether to save result and load from file if exist
+    :param bool compute_only:     Whether to save result and load from file
+                                  if exist.
     :return:                      Iterable of clean reviews.
     :rtype:                       Iterable[str]
     """
@@ -249,7 +250,6 @@ def clean_up_reviews(reviews: Iterable[str],
         pd.DataFrame(data={"review": review}) \
             .to_csv(clean_file, index=False, quoting=3)
     return review
-
 
 
 def reviews2sentences(reviews: Iterable[str],
@@ -310,11 +310,10 @@ def optimization_run(ids: Type[np.ndarray],
     :type mk_vectorizer: Callable[[], Vectorizer]
     :type mk_classifier: Callable[[], Classifier]
     """
-    skf = StratifiedKFold(n_splits=n_splits, random_state=None, shuffle=True)
     predictions = np.zeros(sentiments.shape, dtype=np.bool_)
     scores = np.zeros((n_splits,), dtype=np.float32)
-    for idx, (train_index, test_index) \
-            in enumerate(skf.split(reviews, sentiments)):
+
+    def go(idx, train_index, test_index):
         logging.info('Processing fold number {}...'.format(idx + 1))
         train_reviews = reviews[train_index]
         test_reviews = reviews[test_index]
@@ -333,6 +332,19 @@ def optimization_run(ids: Type[np.ndarray],
         scores[idx] = roc_auc_score(sentiments[test_index],
                                     predictions[test_index])
         logging.info('ROC AUC for this fold is {}.'.format(scores[idx]))
+
+    if sys.version_info >= (3, 6):
+        skf = StratifiedKFold(
+            n_splits=n_splits, random_state=None, shuffle=True)
+        for idx, (train_index, test_index) \
+                in enumerate(skf.split(reviews, sentiments)):
+            go(idx, train_index, test_index)
+    else:
+        skf = StratifiedKFold(
+            reviews, n_splits=n_splits, random_state=None, shuffle=True)
+        for idx, (train_index, test_index) in enumerate(skf):
+            go(idx, train_index, test_index)
+
     wrong_index = np.where(predictions != sentiments)
     logging.info('Overall accuracy on left-out data was {}'
                  .format(np.mean(scores)))
