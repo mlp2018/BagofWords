@@ -67,6 +67,7 @@ _DEFAULT_CONFIG = {
                    # str(_PROJECT_ROOT / 'data' / 'small_train_data_set.tsv'),
         'unlabeled': str(_PROJECT_ROOT / 'data' / 'unlabeledTrainData.tsv'),
         'test':      str(_PROJECT_ROOT / 'data' / 'testData.tsv'),
+        'clean':     str(_PROJECT_ROOT / 'data' / 'cleanReviews.tsv'),
     },
     'out': {
         'result':       str(_PROJECT_ROOT / 'results' / 'Prediction.csv'),
@@ -74,7 +75,7 @@ _DEFAULT_CONFIG = {
     },
     'vectorizer': {
         # Type of the vectorizer, one of {'word2vec', 'bagofwords'}
-        'type': 'word2vec',
+        'type': 'bagofwords',
         'args': {},
         # 'args': {
         #     'size':      300,
@@ -108,6 +109,8 @@ _DEFAULT_CONFIG = {
         # NOTE: Currently, only optimization run is implemented.
         'type':          'optimization',
         'number_splits': 3,
+        'remove_stopwords': False,
+        'cache_clean': True,
     },
     'bagofwords': {},
     'word2vec': {
@@ -141,7 +144,8 @@ warnings.filterwarnings("ignore", category=UserWarning, module='bs4')
 
 
 def _read_data_from(path: str) -> pd.DataFrame:
-    logging.info('Reading data from {}...'.format(repr(path)))
+    assert type(path) == str
+    logging.info('Reading data from {!r}...'.format(path))
     return pd.read_csv(path, header=0, delimiter='\t', quoting=3)
 
 
@@ -208,26 +212,40 @@ class ReviewPreprocessor(object):
 # TODO: This function should probably also do the stemming, see
 # https://github.com/mlp2018/BagofWords/issues/7.
 def clean_up_reviews(reviews: Iterable[str],
-                     remove_stopwords: bool = True) -> List[str]:
+                     remove_stopwords: bool = True,
+                     compute_only: bool = False) -> Type[np.ndarray]:
     """
-    Given an list of reviews, applies
+    Given an list of reviews, either loads pre-computed reviews
+    or applies
     :py:func:`ReviewPreprocessor.review2wordlist` to each review and
     concatenates it back into a single string.
+    and saves to file 'cleaned_reviews'
 
     :param reviews:               Reviews to clean up.
     :type reviews:                Iterable[str]
     :param bool remove_stopwords: Whether to remove the stopwords.
+    :param bool compute_only:     Whether to save result and load from file if exist
     :return:                      Iterable of clean reviews.
     :rtype:                       Iterable[str]
     """
-    logging.info('Cleaning and parsing the reviews...')
     assert isinstance(reviews, Iterable)
     assert type(remove_stopwords) == bool
+    assert type(compute_only) == bool
+    clean_file = conf['in']['clean']
+    if not compute_only and Path(clean_file).exists():
+        return _read_data_from(clean_file)['review'].values
+    logging.info('Cleaning and parsing the reviews...')
     with mp.ProcessingPool() as pool:
-        return pool.map(
+        review = np.array(pool.map(
             lambda x: ' '.join(
                 ReviewPreprocessor.review2wordlist(x, remove_stopwords)),
-            reviews)
+            reviews))
+    if not compute_only:
+        logging.info('Saving clean data to file "cleanReviews.tsv" ...')
+        pd.DataFrame(data={"review": review}) \
+            .to_csv(clean_file, index=False, quoting=3)
+    return review
+
 
 
 def reviews2sentences(reviews: Iterable[str],
@@ -566,8 +584,9 @@ def main():
     if conf['run']['type'] == 'optimization':
         train_data = _read_data_from(conf['in']['labeled'])
         ids = np.array(train_data['id'], dtype=np.unicode_)
-        reviews = np.array(clean_up_reviews(train_data['review']),
-                           dtype=object)
+        reviews = clean_up_reviews(train_data['review'],
+                                   conf['run']['remove_stopwords'],
+                                   not conf['run']['cache_clean'])
         sentiments = np.array(train_data['sentiment'], dtype=np.bool_)
 
         def mk_vectorizer():
