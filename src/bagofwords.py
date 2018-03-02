@@ -235,11 +235,16 @@ def clean_up_reviews(reviews: Iterable[str],
     if not compute_only and Path(clean_file).exists():
         return _read_data_from(clean_file)['review'].values
     logging.info('Cleaning and parsing the reviews...')
-    with mp.ProcessingPool() as pool:
-        review = np.array(pool.map(
-            lambda x: ' '.join(
-                ReviewPreprocessor.review2wordlist(x, remove_stopwords)),
-            reviews))
+    # with mp.ProcessingPool() as pool:
+    #     review = np.array(pool.map(
+    #         lambda x: ' '.join(
+    #             ReviewPreprocessor.review2wordlist(x, remove_stopwords)),
+    #         reviews))
+    review = np.array(list(map(
+        lambda x: ' '.join(
+            ReviewPreprocessor.review2wordlist(x, remove_stopwords)),
+            reviews)))
+    
     if not compute_only:
         logging.info('Saving clean data to file "cleanReviews.tsv" ...')
         pd.DataFrame(data={"review": review}) \
@@ -578,6 +583,19 @@ def _make_classifier(conf):
     return _fn[conf['classifier']['type']](**conf['classifier']['args'])
 
 
+def set_of_words(reviews):
+    split_reviews = []
+    
+    for review in reviews:
+        split_reviews.append(review.split())
+    
+    flat_word_list = [item for sublist in split_reviews for item in sublist]
+    unique_words = set(flat_word_list)
+    unique_words = sorted(unique_words)
+        
+    return unique_words
+
+
 def main():
     logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s',
                         level=logging.INFO)
@@ -588,7 +606,8 @@ def main():
                                    conf['run']['remove_stopwords'],
                                    not conf['run']['cache_clean'])
         sentiments = np.array(train_data['sentiment'], dtype=np.bool_)
-
+        
+        '''
         def mk_vectorizer():
             return _make_vectorizer(conf)
 
@@ -600,6 +619,8 @@ def main():
                          conf['out']['result'],
                          conf['out']['wrong_result'],
                          conf['run']['number_splits'])
+        '''
+        
     else:
         raise NotImplementedError()
 
