@@ -341,7 +341,7 @@ def optimization_run(ids: Type[np.ndarray],
             go(idx, train_index, test_index)
     else:
         skf = StratifiedKFold(
-            reviews, n_splits=n_splits, random_state=None, shuffle=True)
+            sentiments, n_folds=n_splits, random_state=None, shuffle=True)
         for idx, (train_index, test_index) in enumerate(skf):
             go(idx, train_index, test_index)
 
