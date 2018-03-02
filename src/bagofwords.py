@@ -207,7 +207,13 @@ class ReviewPreprocessor(object):
         assert type(remove_stopwords) == bool
 
         # TODO: First preprocess using BeautifulSoup!
-        raw_sentences = ReviewPreprocessor._tokenizer.tokenize(review.strip())
+        review_text = BeautifulSoup(review, 'html.parser').get_text()
+        review_text = re.sub('(www.|http[s]?:\/)(?:[a-zA-Z]|[0-9]|[$-_@.&+]'
+                             '|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+',
+                             '', review_text)
+        review_text = re.sub('[^a-zA-Z]', ' ', review_text)        
+        
+        raw_sentences = ReviewPreprocessor._tokenizer.tokenize(review_text.strip())
         return map(
             lambda x: ReviewPreprocessor.review2wordlist(x, remove_stopwords),
             filter(lambda x: x, raw_sentences))
