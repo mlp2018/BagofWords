@@ -67,6 +67,7 @@ _DEFAULT_CONFIG = {
                    # str(_PROJECT_ROOT / 'data' / 'small_train_data_set.tsv'),
         'unlabeled': str(_PROJECT_ROOT / 'data' / 'unlabeledTrainData.tsv'),
         'test':      str(_PROJECT_ROOT / 'data' / 'testData.tsv'),
+        'clean':     str(_PROJECT_ROOT / 'data' / 'cleanReviews.tsv'),
     },
     'out': {
         'result':       str(_PROJECT_ROOT / 'results' / 'Prediction.csv'),
@@ -208,26 +209,42 @@ class ReviewPreprocessor(object):
 # TODO: This function should probably also do the stemming, see
 # https://github.com/mlp2018/BagofWords/issues/7.
 def clean_up_reviews(reviews: Iterable[str],
-                     remove_stopwords: bool = True) -> List[str]:
+                     remove_stopwords: bool = True,
+                     compute_only: bool = False) -> List[str]:
     """
-    Given an list of reviews, applies
+    Given an list of reviews, either loads pre-computed reviews
+    or applies
     :py:func:`ReviewPreprocessor.review2wordlist` to each review and
     concatenates it back into a single string.
+    and saves to file 'cleaned_reviews'
 
     :param reviews:               Reviews to clean up.
     :type reviews:                Iterable[str]
     :param bool remove_stopwords: Whether to remove the stopwords.
+    :param bool compute_only:     Whether to save result and load from file if exist
     :return:                      Iterable of clean reviews.
     :rtype:                       Iterable[str]
     """
-    logging.info('Cleaning and parsing the reviews...')
-    assert isinstance(reviews, Iterable)
-    assert type(remove_stopwords) == bool
-    with mp.ProcessingPool() as pool:
-        return pool.map(
-            lambda x: ' '.join(
-                ReviewPreprocessor.review2wordlist(x, remove_stopwords)),
-            reviews)
+    if compute_only == False and Path(conf['in']['clean']).exists():
+        logging.info('Reading data from {}...'.format(repr(Path(conf['in']['clean']))))
+        with open(Path(conf['in']['clean']), 'r') as myfile:
+            data = myfile.readlines()
+        return data[1:len(data)]
+    else:
+        logging.info('Cleaning and parsing the reviews...')
+        assert isinstance(reviews, Iterable)
+        assert type(remove_stopwords) == bool
+        with mp.ProcessingPool() as pool:
+            review = pool.map(
+                lambda x: ' '.join(
+                    ReviewPreprocessor.review2wordlist(x, remove_stopwords)),
+                reviews)
+        if compute_only == False:
+            logging.info('Saving clean data to file "cleanReviews.tsv" ...')
+            pd.DataFrame(data={"review": review}) \
+                .to_csv(Path(conf['in']['clean']), index=False, quoting=3)
+        return review
+
 
 
 def reviews2sentences(reviews: Iterable[str],
