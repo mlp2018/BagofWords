@@ -24,7 +24,6 @@
 # SOFTWARE.
 
 import logging
-import pathos.multiprocessing as mp
 import os
 from pathlib import Path
 import re
@@ -240,11 +239,10 @@ def clean_up_reviews(reviews: Iterable[str],
     if not compute_only and Path(clean_file).exists():
         return _read_data_from(clean_file)['review'].values
     logging.info('Cleaning and parsing the reviews...')
-    with mp.ProcessingPool() as pool:
-        review = np.array(pool.map(
-            lambda x: ' '.join(
-                ReviewPreprocessor.review2wordlist(x, remove_stopwords)),
-            reviews))
+    review = np.array(list(map(
+        lambda x: ' '.join(
+            ReviewPreprocessor.review2wordlist(x, remove_stopwords)),
+        reviews)))
     if not compute_only:
         logging.info('Saving clean data to file "cleanReviews.tsv" ...')
         pd.DataFrame(data={"review": review}) \
