@@ -356,7 +356,6 @@ def optimization_run(ids: Type[np.ndarray],
         reviews_test = reviews[test_index]
         sentiments_train = sentiments[train_index]
         sentiments_test = sentiments[test_index]
-        ids_train = ids[train_index]
 
     predictions = np.zeros(sentiments_train.shape, dtype=np.bool_)
     scores = np.zeros((n_splits,), dtype=np.float32)
@@ -402,7 +401,7 @@ def optimization_run(ids: Type[np.ndarray],
         logging.info('Overall accuracy on left-out data from 90-10 split was {}'
                      .format(np.mean(score_10)))
 
-    bookkeeping(ids_train,
+    bookkeeping(ids[train_index],
                 predictions,
                 reviews_train,
                 sentiments_train,
