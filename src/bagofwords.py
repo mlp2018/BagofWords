@@ -116,7 +116,8 @@ _DEFAULT_CONFIG = {
         'number_splits': 3,
         'remove_stopwords': False,
         'cache_clean': True,
-        'test_10': True
+        'test_10': True,
+        'random': 40,
     },
     'bagofwords': {},
     'word2vec': {
@@ -288,50 +289,79 @@ def submission_run():
     raise NotImplementedError()
 
 
-def bookkeeping(ids: Type[np.ndarray],
-                predictions: Type[np.ndarray],
-                reviews: Type[np.ndarray],
-                sentiments: Type[np.ndarray],
-                prediction_file: str,
-                wrong_prediction_file: str,):
-    wrong_index = np.where(predictions != sentiments)
+def bookkeeping(reviews: Type[np.ndarray],
+                wrong_index: Type[np.ndarray],
+                wrong_prediction_file: str):
     logging.info('Saving wrong predictions to {!r}...'
                  .format(wrong_prediction_file))
     pd.DataFrame(data={'review': reviews[wrong_index]}) \
         .to_csv(wrong_prediction_file, index=False, quoting=3, escapechar='\\')
-    logging.info('Saving all predicted sentiments to {!r}...'
-                 .format(prediction_file))
-    pd.DataFrame(data={'id': ids, 'sentiment': predictions}) \
-        .to_csv(prediction_file, index=False, quoting=3)
 
 
-def vectorize_fit_predict(x_train: Type[np.ndarray],
-                          x_test: Type[np.ndarray],
-                          y_train: Type[np.ndarray],
-                          mk_vectorizer: Callable[[], Any],
-                          mk_classifier: Callable[[], Any],):
+def run_one_fold(train_data,
+                 test_data,
+                 mk_vectorizer, mk_classifier):
     vectorizer = mk_vectorizer()
     classifier = mk_classifier()
     logging.info('Transforming training data...')
-    train_data_features = vectorizer.fit_transform(x_train)
+    train_data_features = vectorizer.fit_transform(train_data[0])
     logging.info('Transforming test data...')
-    test_data_features = vectorizer.transform(x_test)
+    test_data_features = vectorizer.transform(test_data[0])
     logging.info('Fitting...')
-    classifier = classifier.fit(train_data_features, y_train)
+    classifier = classifier.fit(train_data_features, train_data[1])
     logging.info('Predicting test labels...')
-    return classifier.predict(test_data_features)
+    prediction = classifier.predict(test_data_features)
+    score = roc_auc_score(test_data[1], prediction)
+    logging.info('ROC AUC for this fold is {}.'.format(score))
+    return score, prediction
 
 
-# NOTE: @Sophie, this is probably the place to add the 10-90 split mentioned
-# here https://github.com/mlp2018/BagofWords/issues/4.
+def split_90_10(data, conf):
+    sss = StratifiedShuffleSplit(n_splits=1, test_size=0.1, random_state=42)
+    for train_index, test_index in sss.split(data[0], data[1]):
+        x_train = data[0][train_index]
+        x_test = data[0][test_index]
+        y_train = data[1][train_index]
+        y_test = data[1][test_index]
+    return (x_train, y_train),(x_test, y_test)
+
+
+def run_a_couple_of_folds(data,conf, mk_vectorizer, mk_classifier):
+
+    predictions = np.zeros(data[1].shape, dtype=np.bool_)
+    scores = np.zeros((conf['number_splits'],), dtype=np.float32)
+
+    if sys.version_info >= (3, 6):
+        skf = StratifiedKFold(
+            n_splits=conf['number_splits'], random_state=conf['random'], shuffle=True)
+        for idx, (train_index, test_index) \
+                in enumerate(skf.split(data[0], data[1])):
+            logging.info('Processing fold number {}...'.format(idx + 1))
+            scores[idx], predictions[test_index] = run_one_fold((data[0][train_index],data[1][train_index]),
+                                                                (data[0][test_index],data[1][test_index]),
+                                                                mk_vectorizer,
+                                                                mk_classifier)
+    else:
+        skf = StratifiedKFold(
+            data[1], n_folds=conf['number_splits'], random_state=conf['random'], shuffle=True)
+        for idx, (train_index, test_index) in enumerate(skf):
+            logging.info('Processing fold number {}...'.format(idx + 1))
+            scores[idx], predictions[test_index] = run_one_fold((data[0][train_index], data[1][train_index]),
+                                                                (data[0][test_index], data[1][test_index]),
+                                                                mk_vectorizer,
+                                                                mk_classifier)
+    logging.info('Overall accuracy on left-out data from k-fold cross-validation was {}'
+                 .format(np.mean(scores)))
+    wrong_index = np.where(predictions != data[1])
+    return np.mean(scores), np.std(scores), wrong_index[0]
+
 # TODO: Split this messy function into smaller ones.
-def optimization_run(ids: Type[np.ndarray],
-                     reviews: Type[np.ndarray],
+def optimization_run(reviews: Type[np.ndarray],
                      sentiments: Type[np.ndarray],
                      mk_vectorizer: Callable[[], Any],
                      mk_classifier: Callable[[], Any],
-                     n_splits: int,
-                     test_on_10: bool = False) -> Type[np.array]:
+                     conf,
+                     wrong_prediction_file: str) -> Type[np.array]:
 
     """
     This is basically the main function.
@@ -349,65 +379,25 @@ def optimization_run(ids: Type[np.ndarray],
     :param test_on_10
     """
 
-    #90-10 split
-    sss = StratifiedShuffleSplit(n_splits=1, test_size=0.1, random_state=42)
-    for train_index, test_index in sss.split(reviews, sentiments):
-        reviews_train = reviews[train_index]
-        reviews_test = reviews[test_index]
-        sentiments_train = sentiments[train_index]
-        sentiments_test = sentiments[test_index]
+    data_90, data_10 = split_90_10((reviews, sentiments), conf)
 
-    predictions = np.zeros(sentiments_train.shape, dtype=np.bool_)
-    scores = np.zeros((n_splits,), dtype=np.float32)
+    score, sigma, wrong_ind = run_a_couple_of_folds(data_90, conf, mk_vectorizer, mk_classifier)
 
-    #k-fold crossvalidation
-    if sys.version_info >= (3, 6):
-        skf = StratifiedKFold(
-            n_splits=n_splits, random_state=None, shuffle=True)
-        for idx, (train_index, test_index) \
-                in enumerate(skf.split(reviews_train, sentiments_train)):
-            logging.info('Processing fold number {}...'.format(idx + 1))
-            predictions[test_index] = vectorize_fit_predict(reviews_train[train_index],
-                                                            reviews_train[test_index],
-                                                            sentiments_train[train_index],
-                                                            mk_vectorizer,
-                                                            mk_classifier)
-            scores[idx] = roc_auc_score(sentiments_train[test_index], predictions[test_index])
-            logging.info('ROC AUC for this fold is {}.'.format(scores[idx]))
-    else:
-        skf = StratifiedKFold(
-            sentiments_train, n_folds=n_splits, random_state=None, shuffle=True)
-        for idx, (train_index, test_index) in enumerate(skf):
-            logging.info('Processing fold number {}...'.format(idx + 1))
-            predictions[test_index] = vectorize_fit_predict(reviews_train[train_index],
-                                                            reviews_train[test_index],
-                                                            sentiments_train[train_index],
-                                                            mk_vectorizer,
-                                                            mk_classifier)
-            scores[idx] = roc_auc_score(sentiments_train[test_index], predictions[test_index])
-            logging.info('ROC AUC for this fold is {}.'.format(scores[idx]))
+    wrong_reviews = data_90[0][wrong_ind]
 
-    logging.info('Overall accuracy on left-out data from k-fold cross-validation was {}'
-                 .format(np.mean(scores)))
-
-    if test_on_10:
+    if conf['test_10']:
         logging.info('Training on 90% and testing on 10%...')
-        prediction_10 = vectorize_fit_predict(reviews_train,
-                                              reviews_test,
-                                              sentiments_train,
-                                              mk_vectorizer,
-                                              mk_classifier)
-        score_10 = roc_auc_score(sentiments_test, prediction_10)
-        logging.info('Overall accuracy on left-out data from 90-10 split was {}'
-                     .format(np.mean(score_10)))
+        score_10, prediction_10 = run_one_fold((data_90[0], data_90[1]),
+                                               (data_10[0], data_10[1]),
+                                               mk_vectorizer,
+                                               mk_classifier)
+        wrong_ind_10 = np.where(prediction_10 != data_10[1])
+        wrong_reviews  = np.concatenate((wrong_reviews, data_10[0][wrong_ind_10]), axis=0)
 
-    bookkeeping(ids[train_index],
-                predictions,
-                reviews_train,
-                sentiments_train,
-                conf['out']['result'],
-                conf['out']['wrong_result'])
-
+    logging.info('Saving wrong predictions to {!r}...'
+                 .format(wrong_prediction_file))
+    pd.DataFrame(data={'review': wrong_reviews}) \
+        .to_csv(wrong_prediction_file, index=False, quoting=3, escapechar='\\')
 
 
 class SimpleAverager(object):
@@ -662,11 +652,11 @@ def main():
         def mk_classifier():
             return _make_classifier(conf)
 
-        optimization_run(ids, reviews, sentiments,
+        optimization_run(reviews, sentiments,
                          mk_vectorizer, mk_classifier,
-                         conf['run']['number_splits'],
-                         conf['run']['test_10']
-        )
+                         conf['run'],
+                         conf['out']['wrong_result'])
+
     else:
         raise NotImplementedError()
 
