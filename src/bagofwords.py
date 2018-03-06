@@ -47,6 +47,8 @@ from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import StratifiedKFold
 
+import gensim
+
 
 def _get_current_file_dir() -> Path:
     """Returns the directory of the script."""
@@ -58,7 +60,6 @@ def _get_current_file_dir() -> Path:
 
 # Project root directory, i.e. the github repo directory.
 _PROJECT_ROOT = _get_current_file_dir() / '..'
-
 
 # Default configuration options.
 _DEFAULT_CONFIG = {
@@ -584,18 +585,30 @@ def _make_classifier(conf):
 
 
 def set_of_words(reviews):
+    '''
+    create the set of words
+    :param reviews: 
+
+    '''
     split_reviews = []
-    
     for review in reviews:
         split_reviews.append(review.split())
     
     flat_word_list = [item for sublist in split_reviews for item in sublist]
     unique_words = set(flat_word_list)
-    unique_words = sorted(unique_words)
         
     return unique_words
 
+def selectWords(unique_words, pre_train_data):
 
+    words = []
+    
+    for wordSet in unique_words:
+            if wordPre in pre_train_data:
+                intermediate_list.append(wordPre)
+
+    return words
+    
 def main():
     logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s',
                         level=logging.INFO)
@@ -606,7 +619,25 @@ def main():
                                    conf['run']['remove_stopwords'],
                                    not conf['run']['cache_clean'])
         sentiments = np.array(train_data['sentiment'], dtype=np.bool_)
+
+        unique_words = set_of_words(reviews)
         
+        #pre-trained model 
+        model = gensim.models.KeyedVectors.load_word2vec_format('./GoogleNews-vectors-negative300.bin', binary=True)
+
+        #creation dictionary 
+        dictionnary_words = {}
+        
+        for word in unique_words:
+            if word in model: 
+                dictionnary_words[word] = model[word]
+
+        #to save
+        np.save('dictionary_pretrained.npy', dictionnary_words)        
+        
+        #to load
+        #read_dictionary = np.load('dictionary_pretrained.npy').item()
+
         '''
         def mk_vectorizer():
             return _make_vectorizer(conf)
