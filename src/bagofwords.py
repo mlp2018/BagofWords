@@ -167,6 +167,28 @@ class ReviewPreprocessor(object):
     _tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
 
     @staticmethod
+    def _striphtml(text: str) -> str:
+        assert type(text) == str
+
+        text = re.sub('(www.|http[s]?:\/)(?:[a-zA-Z]|[0-9]|[$-_@.&+]'
+                      '|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+',
+                      '', text)
+        text = BeautifulSoup(text, 'html.parser').get_text()
+        return text
+
+    @staticmethod
+    def _2wordlist(text: str, remove_stopwords: bool = False) -> List[str]:
+        assert type(text) == str
+        assert type(remove_stopwords) == bool
+
+        text = re.sub('[^a-zA-Z]', ' ', text)
+        words = text.lower().split()
+        if remove_stopwords:
+            words = [w for w in words if w not in
+                     ReviewPreprocessor._stopwords]
+        return words
+
+    @staticmethod
     def review2wordlist(review: str, remove_stopwords: bool = False) \
             -> List[str]:
         """
@@ -183,17 +205,9 @@ class ReviewPreprocessor(object):
         assert type(review) == str
         assert type(remove_stopwords) == bool
 
-        review_text = BeautifulSoup(review, 'html.parser').get_text()
-        review_text = re.sub('(www.|http[s]?:\/)(?:[a-zA-Z]|[0-9]|[$-_@.&+]'
-                             '|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+',
-                             '', review_text)
-        review_text = re.sub('[^a-zA-Z]', ' ', review_text)
-
-        words = review_text.lower().split()
-        if remove_stopwords:
-            words = [w for w in words if w not in
-                     ReviewPreprocessor._stopwords]
-        return words
+        return ReviewPreprocessor._2wordlist(
+            ReviewPreprocessor._striphtml(review),
+            remove_stopwords=remove_stopwords)
 
     @staticmethod
     def review2sentences(review: str, remove_stopwords: bool = False) \
@@ -211,9 +225,11 @@ class ReviewPreprocessor(object):
         assert type(remove_stopwords) == bool
 
         # TODO: First preprocess using BeautifulSoup!
-        raw_sentences = ReviewPreprocessor._tokenizer.tokenize(review.strip())
+
+        raw_sentences = ReviewPreprocessor._tokenizer.tokenize(
+            ReviewPreprocessor._striphtml(review))
         return map(
-            lambda x: ReviewPreprocessor.review2wordlist(x, remove_stopwords),
+            lambda x: ReviewPreprocessor._2wordlist(x, remove_stopwords),
             filter(lambda x: x, raw_sentences))
 
 
