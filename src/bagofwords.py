@@ -30,7 +30,7 @@ from pathlib import Path
 import re
 import sys
 import time
-from typing import Type, Any, Iterable, List, Set, Dict, Callable
+from typing import Type, Any, Iterable, Tuple, List, Set, Dict, Callable
 import warnings
 
 from bs4 import BeautifulSoup
@@ -106,18 +106,20 @@ _DEFAULT_CONFIG = {
         'type': 'random-forest',
         'args': {
             'n_estimators': 100,
-            'n_jobs':       2,
+            'max_features': 10000,
+            'n_jobs':       4,
         },
     },
     'run': {
         # Type of the run, one of {'optimization', 'submission'}
         # NOTE: Currently, only optimization run is implemented.
         'type':          'optimization',
-        'number_splits': 3,
+        'number_splits': 5,
         'remove_stopwords': False,
         'cache_clean': True,
         'test_10': True,
         'random': 40,
+        'alpha': 0.6,
     },
     'bagofwords': {},
     'word2vec': {
@@ -298,62 +300,99 @@ def bookkeeping(reviews: Type[np.ndarray],
         .to_csv(wrong_prediction_file, index=False, quoting=3, escapechar='\\')
 
 
-def run_one_fold(train_data,
-                 test_data,
-                 mk_vectorizer, mk_classifier):
-    vectorizer = mk_vectorizer()
-    classifier = mk_classifier()
+def run_one_fold(train_data: Tuple[Type[np.ndarray], Type[np.ndarray]],
+                 test_data: Tuple[Type[np.ndarray], Type[np.ndarray]],
+                 vectorizer: Any, classifier: Any) \
+        -> Tuple[float, Type[np.ndarray]]:
+    """
+    Given some data to train on and some data to test on, runs the whole
+    feature extraction + classification procedure, computes the ROC AUC score
+    of the predictions and returns it along with raw predictions.
+
+    :param train_data: ``(array of reviews, array of sentiments)`` on which the
+                       model will be trained.
+    :param test_data:  ``(array of reviews, array of sentiments)`` on which the
+                       accuracy of the model will be computed.
+    :param vectorizer: Vectorizer to use.
+    :param classifier: Classifier to use.
+    :return:           ``(score, predictions)`` tuple.
+    """
+    (train_reviews, train_labels) = train_data
+    (test_reviews, test_labels) = test_data
     logging.info('Transforming training data...')
-    train_data_features = vectorizer.fit_transform(train_data[0])
+    train_features = vectorizer.fit_transform(train_reviews)
     logging.info('Transforming test data...')
-    test_data_features = vectorizer.transform(test_data[0])
+    test_features = vectorizer.transform(test_reviews)
     logging.info('Fitting...')
-    classifier = classifier.fit(train_data_features, train_data[1])
+    classifier = classifier.fit(train_features, train_labels)
     logging.info('Predicting test labels...')
-    prediction = classifier.predict(test_data_features)
-    score = roc_auc_score(test_data[1], prediction)
+    prediction = classifier.predict(test_features)
+    score = roc_auc_score(test_labels, prediction)
     logging.info('ROC AUC for this fold is {}.'.format(score))
     return score, prediction
 
 
-def split_90_10(data, conf):
-    sss = StratifiedShuffleSplit(n_splits=1, test_size=0.1, random_state=42)
-    for train_index, test_index in sss.split(data[0], data[1]):
-        x_train = data[0][train_index]
-        x_test = data[0][test_index]
-        y_train = data[1][train_index]
-        y_test = data[1][test_index]
-    return (x_train, y_train),(x_test, y_test)
+def split_90_10(data: Tuple[Type[np.ndarray], Type[np.ndarray]],
+                alpha: float,
+                seed: int = 42) \
+        -> Tuple[Tuple[Type[np.ndarray], Type[np.ndarray]],
+                 Tuple[Type[np.ndarray], Type[np.ndarray]]]:
+    """
+    Despite the very descriptive name this function does the ``1-alpha`` -
+    ``alpha`` split rather than the ``90%`` - ``10%`` one.
+
+    :param data: The data to split.
+    :param alpha: Percentage of data to use for testing.
+    :param seed: Random seed to use for splitting.
+    :return: ``((reviews to train on, sentiments to train on),
+                (reviews to test on, sentiments to test on))``.
+    """
+    assert 0 < alpha and alpha < 1
+    reviews, labels = data
+    sss = StratifiedShuffleSplit(
+        n_splits=1, test_size=alpha, random_state=seed)
+    for train_index, test_index in sss.split(reviews, labels):
+        x_train = reviews[train_index]
+        x_test = reviews[test_index]
+        y_train = labels[train_index]
+        y_test = labels[test_index]
+    return (x_train, y_train), (x_test, y_test)
 
 
-def run_a_couple_of_folds(data,conf, mk_vectorizer, mk_classifier):
+def run_a_couple_of_folds(data: Tuple[Type[np.ndarray], Type[np.ndarray]],
+                          mk_vectorizer: Callable[[], Any],
+                          mk_classifier: Callable[[], Any],
+                          number_splits: int) \
+        -> Tuple[float, float, np.ndarray]:
+    # TODO: Write docs for this function.
 
-    predictions = np.zeros(data[1].shape, dtype=np.bool_)
-    scores = np.zeros((conf['number_splits'],), dtype=np.float32)
+    reviews, labels = data
+    predictions = np.zeros(labels.shape, dtype=np.bool_)
+    scores = np.zeros((number_splits,), dtype=np.float32)
+
+    def go(idx, train_index, test_index):
+        logging.info('Processing fold number {}...'.format(idx + 1))
+        scores[idx], predictions[test_index] = run_one_fold(
+            (reviews[train_index], labels[train_index]),
+            (reviews[test_index], labels[test_index]),
+            mk_vectorizer(), mk_classifier())
 
     if sys.version_info >= (3, 6):
-        skf = StratifiedKFold(
-            n_splits=conf['number_splits'], random_state=conf['random'], shuffle=True)
+        skf = StratifiedKFold(n_splits=number_splits, shuffle=False)
         for idx, (train_index, test_index) \
-                in enumerate(skf.split(data[0], data[1])):
-            logging.info('Processing fold number {}...'.format(idx + 1))
-            scores[idx], predictions[test_index] = run_one_fold((data[0][train_index],data[1][train_index]),
-                                                                (data[0][test_index],data[1][test_index]),
-                                                                mk_vectorizer,
-                                                                mk_classifier)
+                in enumerate(skf.split(reviews, labels)):
+            go(idx, train_index, test_index)
     else:
-        skf = StratifiedKFold(
-            data[1], n_folds=conf['number_splits'], random_state=conf['random'], shuffle=True)
+        skf = StratifiedKFold(labels, n_folds=number_splits, shuffle=False)
         for idx, (train_index, test_index) in enumerate(skf):
-            logging.info('Processing fold number {}...'.format(idx + 1))
-            scores[idx], predictions[test_index] = run_one_fold((data[0][train_index], data[1][train_index]),
-                                                                (data[0][test_index], data[1][test_index]),
-                                                                mk_vectorizer,
-                                                                mk_classifier)
-    logging.info('Overall accuracy on left-out data from k-fold cross-validation was {}'
-                 .format(np.mean(scores)))
-    wrong_index = np.where(predictions != data[1])
-    return np.mean(scores), np.std(scores), wrong_index[0]
+            go(idx, train_index, test_index)
+
+    score, score_std = np.mean(scores), np.std(scores)
+    logging.info(('Overall accuracy on left-out data from k-fold '
+                  'cross-validation was {}').format(score))
+    wrong_index = np.where(predictions != labels)
+    return score, score_std, wrong_index
+
 
 # TODO: Split this messy function into smaller ones.
 def optimization_run(reviews: Type[np.ndarray],
@@ -362,7 +401,6 @@ def optimization_run(reviews: Type[np.ndarray],
                      mk_classifier: Callable[[], Any],
                      conf,
                      wrong_prediction_file: str) -> Type[np.array]:
-
     """
     This is basically the main function.
 
@@ -378,22 +416,20 @@ def optimization_run(reviews: Type[np.ndarray],
     :param n_splits
     :param test_on_10
     """
-
-    data_90, data_10 = split_90_10((reviews, sentiments), conf)
-
-    score, sigma, wrong_ind = run_a_couple_of_folds(data_90, conf, mk_vectorizer, mk_classifier)
-
-    wrong_reviews = data_90[0][wrong_ind]
-
+    data_90, data_10 = split_90_10((reviews, sentiments),
+                                   conf['alpha'], conf['random'])
+    reviews_90, _ = data_90
+    reviews_10, labels_10 = data_10
+    score, sigma, wrong_idx = run_a_couple_of_folds(
+        data_90, mk_vectorizer, mk_classifier, conf['number_splits'])
+    wrong_reviews = reviews_90[wrong_idx]
     if conf['test_10']:
         logging.info('Training on 90% and testing on 10%...')
-        score_10, prediction_10 = run_one_fold((data_90[0], data_90[1]),
-                                               (data_10[0], data_10[1]),
-                                               mk_vectorizer,
-                                               mk_classifier)
-        wrong_ind_10 = np.where(prediction_10 != data_10[1])
-        wrong_reviews  = np.concatenate((wrong_reviews, data_10[0][wrong_ind_10]), axis=0)
-
+        score_10, prediction_10 = run_one_fold(
+            data_90, data_10, mk_vectorizer(), mk_classifier())
+        wrong_idx_10 = np.where(prediction_10 != labels_10)
+        wrong_reviews = np.concatenate(
+            (wrong_reviews, reviews_10[wrong_idx_10]), axis=0)
     logging.info('Saving wrong predictions to {!r}...'
                  .format(wrong_prediction_file))
     pd.DataFrame(data={'review': wrong_reviews}) \
