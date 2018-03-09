@@ -245,9 +245,9 @@ def clean_up_reviews(reviews: Iterable[str],
         return _read_data_from(clean_file)['review'].values
     logging.info('Cleaning and parsing the reviews...')
     review = np.array(list(map(
-            lambda x: ' '.join(
-                ReviewPreprocessor.review2wordlist(x, remove_stopwords)),
-            reviews)))
+        lambda x: ' '.join(
+            ReviewPreprocessor.review2wordlist(x, remove_stopwords)),
+        reviews)))
     if not compute_only:
         logging.info('Saving clean data to file "cleanReviews.tsv" ...')
         pd.DataFrame(data={"review": review}) \
