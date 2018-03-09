@@ -24,7 +24,6 @@
 # SOFTWARE.
 
 import logging
-import pathos.multiprocessing as mp
 import os
 from pathlib import Path
 import re
@@ -105,8 +104,8 @@ _DEFAULT_CONFIG = {
         # NOTE: Currently, 'random-forest' is the only working option.
         'type': 'random-forest',
         'args': {
-            'n_estimators': 100,
-            'max_features': 10000,
+            'n_estimators': 50,
+            'max_features': 20000,
             'n_jobs':       4,
         },
     },
@@ -114,12 +113,12 @@ _DEFAULT_CONFIG = {
         # Type of the run, one of {'optimization', 'submission'}
         # NOTE: Currently, only optimization run is implemented.
         'type':          'optimization',
-        'number_splits': 5,
+        'number_splits': 3,
         'remove_stopwords': False,
         'cache_clean': True,
         'test_10': True,
         'random': 40,
-        'alpha': 0.6,
+        'alpha': 0.3,
     },
     'bagofwords': {},
     'word2vec': {
@@ -245,11 +244,10 @@ def clean_up_reviews(reviews: Iterable[str],
     if not compute_only and Path(clean_file).exists():
         return _read_data_from(clean_file)['review'].values
     logging.info('Cleaning and parsing the reviews...')
-    with mp.ProcessingPool() as pool:
-        review = np.array(pool.map(
+    review = np.array(list(map(
             lambda x: ' '.join(
                 ReviewPreprocessor.review2wordlist(x, remove_stopwords)),
-            reviews))
+            reviews)))
     if not compute_only:
         logging.info('Saving clean data to file "cleanReviews.tsv" ...')
         pd.DataFrame(data={"review": review}) \
