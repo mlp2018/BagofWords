@@ -104,8 +104,8 @@ _DEFAULT_CONFIG = {
         # NOTE: Currently, 'random-forest' is the only working option.
         'type': 'random-forest',
         'args': {
-            'n_estimators': 50,
-            'max_features': 20000,
+            'n_estimators': 100,
+            # 'max_features': 20000,
             'n_jobs':       4,
         },
     },
@@ -117,8 +117,8 @@ _DEFAULT_CONFIG = {
         'remove_stopwords': False,
         'cache_clean': True,
         'test_10': True,
-        'random': 40,
-        'alpha': 0.3,
+        'random': 42,
+        'alpha': 0.1,
     },
     'bagofwords': {},
     'word2vec': {
