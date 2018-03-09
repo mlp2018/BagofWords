@@ -29,7 +29,7 @@ from pathlib import Path
 import re
 import sys
 import time
-from typing import Type, Any, Iterable, List, Set, Dict, Callable
+from typing import Type, Any, Iterable, Tuple, List, Set, Dict, Callable
 import warnings
 
 from bs4 import BeautifulSoup
@@ -49,6 +49,7 @@ if sys.version_info >= (3, 6):
     from sklearn.model_selection import StratifiedKFold
 else:  # We have an old version of sklearn...
     from sklearn.cross_validation import StratifiedKFold
+from sklearn.model_selection import StratifiedShuffleSplit
 
 
 def _get_current_file_dir() -> Path:
@@ -104,7 +105,8 @@ _DEFAULT_CONFIG = {
         'type': 'random-forest',
         'args': {
             'n_estimators': 100,
-            'n_jobs':       2,
+            # 'max_features': 20000,
+            'n_jobs':       4,
         },
     },
     'run': {
@@ -114,6 +116,9 @@ _DEFAULT_CONFIG = {
         'number_splits': 3,
         'remove_stopwords': False,
         'cache_clean': True,
+        'test_10': True,
+        'random': 42,
+        'alpha': 0.1,
     },
     'bagofwords': {},
     'word2vec': {
@@ -290,17 +295,116 @@ def submission_run():
     raise NotImplementedError()
 
 
-# NOTE: @Sophie, this is probably the place to add the 10-90 split mentioned
-# here https://github.com/mlp2018/BagofWords/issues/4.
+def bookkeeping(reviews: Type[np.ndarray],
+                wrong_index: Type[np.ndarray],
+                wrong_prediction_file: str):
+    logging.info('Saving wrong predictions to {!r}...'
+                 .format(wrong_prediction_file))
+    pd.DataFrame(data={'review': reviews[wrong_index]}) \
+        .to_csv(wrong_prediction_file, index=False, quoting=3, escapechar='\\')
+
+
+def run_one_fold(train_data: Tuple[Type[np.ndarray], Type[np.ndarray]],
+                 test_data: Tuple[Type[np.ndarray], Type[np.ndarray]],
+                 vectorizer: Any, classifier: Any) \
+        -> Tuple[float, Type[np.ndarray]]:
+    """
+    Given some data to train on and some data to test on, runs the whole
+    feature extraction + classification procedure, computes the ROC AUC score
+    of the predictions and returns it along with raw predictions.
+
+    :param train_data: ``(array of reviews, array of sentiments)`` on which the
+                       model will be trained.
+    :param test_data:  ``(array of reviews, array of sentiments)`` on which the
+                       accuracy of the model will be computed.
+    :param vectorizer: Vectorizer to use.
+    :param classifier: Classifier to use.
+    :return:           ``(score, predictions)`` tuple.
+    """
+    (train_reviews, train_labels) = train_data
+    (test_reviews, test_labels) = test_data
+    logging.info('Transforming training data...')
+    train_features = vectorizer.fit_transform(train_reviews)
+    logging.info('Transforming test data...')
+    test_features = vectorizer.transform(test_reviews)
+    logging.info('Fitting...')
+    classifier = classifier.fit(train_features, train_labels)
+    logging.info('Predicting test labels...')
+    prediction = classifier.predict(test_features)
+    score = roc_auc_score(test_labels, prediction)
+    logging.info('ROC AUC for this fold is {}.'.format(score))
+    return score, prediction
+
+
+def split_90_10(data: Tuple[Type[np.ndarray], Type[np.ndarray]],
+                alpha: float,
+                seed: int = 42) \
+        -> Tuple[Tuple[Type[np.ndarray], Type[np.ndarray]],
+                 Tuple[Type[np.ndarray], Type[np.ndarray]]]:
+    """
+    Despite the very descriptive name this function does the ``1-alpha`` -
+    ``alpha`` split rather than the ``90%`` - ``10%`` one.
+
+    :param data: The data to split.
+    :param alpha: Percentage of data to use for testing.
+    :param seed: Random seed to use for splitting.
+    :return: ``((reviews to train on, sentiments to train on),
+                (reviews to test on, sentiments to test on))``.
+    """
+    assert 0 < alpha and alpha < 1
+    reviews, labels = data
+    sss = StratifiedShuffleSplit(
+        n_splits=1, test_size=alpha, random_state=seed)
+    for train_index, test_index in sss.split(reviews, labels):
+        x_train = reviews[train_index]
+        x_test = reviews[test_index]
+        y_train = labels[train_index]
+        y_test = labels[test_index]
+    return (x_train, y_train), (x_test, y_test)
+
+
+def run_a_couple_of_folds(data: Tuple[Type[np.ndarray], Type[np.ndarray]],
+                          mk_vectorizer: Callable[[], Any],
+                          mk_classifier: Callable[[], Any],
+                          number_splits: int) \
+        -> Tuple[float, float, np.ndarray]:
+    # TODO: Write docs for this function.
+
+    reviews, labels = data
+    predictions = np.zeros(labels.shape, dtype=np.bool_)
+    scores = np.zeros((number_splits,), dtype=np.float32)
+
+    def go(idx, train_index, test_index):
+        logging.info('Processing fold number {}...'.format(idx + 1))
+        scores[idx], predictions[test_index] = run_one_fold(
+            (reviews[train_index], labels[train_index]),
+            (reviews[test_index], labels[test_index]),
+            mk_vectorizer(), mk_classifier())
+
+    if sys.version_info >= (3, 6):
+        skf = StratifiedKFold(n_splits=number_splits, shuffle=False)
+        for idx, (train_index, test_index) \
+                in enumerate(skf.split(reviews, labels)):
+            go(idx, train_index, test_index)
+    else:
+        skf = StratifiedKFold(labels, n_folds=number_splits, shuffle=False)
+        for idx, (train_index, test_index) in enumerate(skf):
+            go(idx, train_index, test_index)
+
+    score, score_std = np.mean(scores), np.std(scores)
+    logging.info(('Overall accuracy on left-out data from k-fold '
+                  'cross-validation was {}').format(score))
+    wrong_index = np.where(predictions != labels)
+    return score, score_std, wrong_index
+
+
 # TODO: Split this messy function into smaller ones.
-def optimization_run(ids: Type[np.ndarray],
-                     reviews: Type[np.ndarray],
+def optimization_run(reviews: Type[np.ndarray],
                      sentiments: Type[np.ndarray],
                      mk_vectorizer: Callable[[], Any],
                      mk_classifier: Callable[[], Any],
-                     prediction_file: str,
-                     wrong_prediction_file: str,
-                     n_splits: int) -> Type[np.array]:
+                     conf,
+                     wrong_prediction_file: str) -> Type[np.array]:
     """
     This is basically the main function.
 
@@ -313,54 +417,27 @@ def optimization_run(ids: Type[np.ndarray],
     :param mk_vectorizer: Factory function to create a new vectorizer.
     :type mk_vectorizer: Callable[[], Vectorizer]
     :type mk_classifier: Callable[[], Classifier]
+    :param n_splits
+    :param test_on_10
     """
-    predictions = np.zeros(sentiments.shape, dtype=np.bool_)
-    scores = np.zeros((n_splits,), dtype=np.float32)
-
-    def go(idx, train_index, test_index):
-        logging.info('Processing fold number {}...'.format(idx + 1))
-        train_reviews = reviews[train_index]
-        test_reviews = reviews[test_index]
-        train_sentiments = sentiments[train_index]
-        vectorizer = mk_vectorizer()
-        classifier = mk_classifier()
-
-        logging.info('Transforming training data...')
-        train_data_features = vectorizer.fit_transform(train_reviews)
-        logging.info('Transforming test data...')
-        test_data_features = vectorizer.transform(test_reviews)
-        logging.info('Fitting...')
-        classifier = classifier.fit(train_data_features, train_sentiments)
-        logging.info('Predicting test labels...')
-        predictions[test_index] = classifier.predict(test_data_features)
-        scores[idx] = roc_auc_score(sentiments[test_index],
-                                    predictions[test_index])
-        logging.info('ROC AUC for this fold is {}.'.format(scores[idx]))
-
-    if sys.version_info >= (3, 6):
-        skf = StratifiedKFold(
-            n_splits=n_splits, random_state=None, shuffle=True)
-        for idx, (train_index, test_index) \
-                in enumerate(skf.split(reviews, sentiments)):
-            go(idx, train_index, test_index)
-    else:
-        skf = StratifiedKFold(
-            sentiments, n_folds=n_splits, random_state=None, shuffle=True)
-        for idx, (train_index, test_index) in enumerate(skf):
-            go(idx, train_index, test_index)
-
-    wrong_index = np.where(predictions != sentiments)
-    logging.info('Overall accuracy on left-out data was {}'
-                 .format(np.mean(scores)))
+    data_90, data_10 = split_90_10((reviews, sentiments),
+                                   conf['alpha'], conf['random'])
+    reviews_90, _ = data_90
+    reviews_10, labels_10 = data_10
+    score, sigma, wrong_idx = run_a_couple_of_folds(
+        data_90, mk_vectorizer, mk_classifier, conf['number_splits'])
+    wrong_reviews = reviews_90[wrong_idx]
+    if conf['test_10']:
+        logging.info('Training on 90% and testing on 10%...')
+        score_10, prediction_10 = run_one_fold(
+            data_90, data_10, mk_vectorizer(), mk_classifier())
+        wrong_idx_10 = np.where(prediction_10 != labels_10)
+        wrong_reviews = np.concatenate(
+            (wrong_reviews, reviews_10[wrong_idx_10]), axis=0)
     logging.info('Saving wrong predictions to {!r}...'
                  .format(wrong_prediction_file))
-    pd.DataFrame(data={'review': reviews[wrong_index]}) \
+    pd.DataFrame(data={'review': wrong_reviews}) \
         .to_csv(wrong_prediction_file, index=False, quoting=3, escapechar='\\')
-    logging.info('Saving all predictions to {!r}...'
-                 .format(prediction_file))
-    pd.DataFrame(data={'id': ids, 'sentiment': predictions}) \
-        .to_csv(prediction_file, index=False, quoting=3)
-    return scores
 
 
 class SimpleAverager(object):
@@ -615,11 +692,11 @@ def main():
         def mk_classifier():
             return _make_classifier(conf)
 
-        optimization_run(ids, reviews, sentiments,
+        optimization_run(reviews, sentiments,
                          mk_vectorizer, mk_classifier,
-                         conf['out']['result'],
-                         conf['out']['wrong_result'],
-                         conf['run']['number_splits'])
+                         conf['run'],
+                         conf['out']['wrong_result'])
+
     else:
         raise NotImplementedError()
 
