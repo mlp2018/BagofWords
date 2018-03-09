@@ -112,7 +112,7 @@ _DEFAULT_CONFIG = {
     'run': {
         # Type of the run, one of {'optimization', 'submission'}
         # NOTE: Currently, only optimization run is implemented.
-        'type':          'optimization',
+        'type':          'submission',
         'number_splits': 3,
         'remove_stopwords': False,
         'cache_clean': True,
@@ -285,8 +285,37 @@ def reviews2sentences(reviews: Iterable[str],
     return R2SIter(reviews, remove_stopwords)
 
 
-def submission_run():
-    raise NotImplementedError()
+def submission_run(reviews: Type[np.ndarray],
+                   sentiments: Type[np.ndarray],
+                   test_reviews: Type[np.ndarray],
+                   ids,
+                   mk_vectorizer: Callable[[], Any],
+                   mk_classifier: Callable[[], Any],
+                   prediction_file: str) -> Type[np.array]:
+    """
+    :param ids: Array of review identifiers.
+    :type ids: 'numpy.ndarray' of shape ``(N,)``
+    :param reviews: Array of raw reviews texts.
+    :type reviews: 'numpy.ndarray' of shape ``(N,)``
+    :param sentiments: Array of review sentiments.
+    :type sentiments: 'numpy.ndarray' of shape ``(N,)``
+    :param test_reviews: Array of test review texts.
+    :type test_reviews: 'numpy.ndarray' of shape ``(N,)``
+    :param mk_vectorizer: Factory function to create a new vectorizer.
+    :type mk_vectorizer: Callable[[], Vectorizer]
+    :type mk_classifier: Callable[[], Classifier]
+    :param prediction_file
+    """
+
+    score, prediction = run_one_fold((reviews, sentiments),
+                                     test_reviews,
+                                     mk_vectorizer(),
+                                     mk_classifier())
+
+    logging.info('Saving all predicted sentiments to {!r}...'
+                 .format(prediction_file))
+    pd.DataFrame(data={'id': ids, 'sentiment': prediction}) \
+        .to_csv(prediction_file, index=False, quoting=3)
 
 
 def bookkeeping(reviews: Type[np.ndarray],
@@ -315,8 +344,12 @@ def run_one_fold(train_data: Tuple[Type[np.ndarray], Type[np.ndarray]],
     :param classifier: Classifier to use.
     :return:           ``(score, predictions)`` tuple.
     """
+    score = None
     (train_reviews, train_labels) = train_data
-    (test_reviews, test_labels) = test_data
+    if isinstance(test_data, tuple):
+        (test_reviews, test_labels) = test_data
+    else:
+        test_reviews = test_data
     logging.info('Transforming training data...')
     train_features = vectorizer.fit_transform(train_reviews)
     logging.info('Transforming test data...')
@@ -325,8 +358,9 @@ def run_one_fold(train_data: Tuple[Type[np.ndarray], Type[np.ndarray]],
     classifier = classifier.fit(train_features, train_labels)
     logging.info('Predicting test labels...')
     prediction = classifier.predict(test_features)
-    score = roc_auc_score(test_labels, prediction)
-    logging.info('ROC AUC for this fold is {}.'.format(score))
+    if isinstance(test_data, tuple):
+        score = roc_auc_score(test_labels, prediction)
+        logging.info('ROC AUC for this fold is {}.'.format(score))
     return score, prediction
 
 
@@ -690,7 +724,29 @@ def main():
                          mk_vectorizer, mk_classifier,
                          conf['run'],
                          conf['out']['wrong_result'])
+    elif conf['run']['type'] == 'submission':
+        train_data = _read_data_from(conf['in']['labeled'])
+        test_data = _read_data_from(conf['in']['test'])
+        ids = np.array(test_data['id'], dtype=np.unicode_)
+        reviews = clean_up_reviews(train_data['review'],
+                                   conf['run']['remove_stopwords'],
+                                   not conf['run']['cache_clean'])
+        sentiments = np.array(train_data['sentiment'], dtype=np.bool_)
+        test_reviews = clean_up_reviews(test_data['review'],
+                                   conf['run']['remove_stopwords'],
+                                   not conf['run']['cache_clean'])
 
+        def mk_vectorizer():
+            return _make_vectorizer(conf)
+
+        def mk_classifier():
+            return _make_classifier(conf)
+
+        submission_run(reviews, sentiments,
+                       test_reviews,
+                       ids,
+                       mk_vectorizer, mk_classifier,
+                       conf['out']['result'])
     else:
         raise NotImplementedError()
 
