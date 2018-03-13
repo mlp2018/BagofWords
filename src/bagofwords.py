@@ -76,7 +76,7 @@ _DEFAULT_CONFIG = {
     },
     'vectorizer': {
         # Type of the vectorizer, one of {'word2vec', 'bagofwords'}
-        'type': 'bagofwords',
+        'type': 'word2vec',
         'args': {},
         # 'args': {
         #     'size':      300,
@@ -108,7 +108,7 @@ _DEFAULT_CONFIG = {
     'run': {
         # Type of the run, one of {'optimization', 'submission'}
         # NOTE: Currently, only optimization run is implemented.
-        'type':          'optimization',
+        'type': 'optimization',
         'number_splits': 3,
         'remove_stopwords': False,
         'cache_clean': True,
@@ -117,6 +117,7 @@ _DEFAULT_CONFIG = {
     'word2vec': {
         'model':    str(_PROJECT_ROOT / 'results'
                                       / '300features_40minwords_10context'),
+        'dictionary_pretrained': str(_PROJECT_ROOT / 'results' / 'dictionary_pretrained.npy'),
         'retrain':  False,
         # Averaging strategy to use, one of {'average', 'k-means'}
         'strategy': 'k-means'
@@ -324,6 +325,7 @@ def optimization_run(ids: Type[np.ndarray],
         vectorizer = mk_vectorizer()
         classifier = mk_classifier()
 
+        print(train_reviews[0])
         logging.info('Transforming training data...')
         train_data_features = vectorizer.fit_transform(train_reviews)
         logging.info('Transforming test data...')
@@ -529,6 +531,7 @@ class Word2VecVectorizer(object):
         assert averager in {'average', 'k-means'}
         self.model = None
         self.averager = None
+        self.dictionary = None
 
         if train_data is not None:
             logging.info('Training Word2Vec model...')
@@ -545,6 +548,7 @@ class Word2VecVectorizer(object):
             # TODO: We do not really need the whole Word2Vec model,
             # KeyedVectors should suffice.
             self.model = Word2Vec.load(model_file, **model_args)
+            self.dictionary = conf['word2vec']['dictionary_pretrained']
 
         self.model = self.model.wv
         self.averager = \
@@ -555,6 +559,7 @@ class Word2VecVectorizer(object):
 
     def transform(self, reviews):
         return self.averager.transform(reviews, self.model)
+    
 
 
 def _make_vectorizer(conf):
@@ -584,6 +589,26 @@ def _make_classifier(conf):
     return _fn[conf['classifier']['type']](**conf['classifier']['args'])
 
 
+
+def createDictionaryPretrained(reviews):
+    unique_words = set_of_words(reviews)
+        
+    #pre-trained model 
+    model = gensim.models.KeyedVectors.load_word2vec_format('./GoogleNews-vectors-negative300.bin', binary=True)
+
+    #creation dictionary 
+    dictionnary_words = {}
+    
+    for word in unique_words:
+        if word in model: 
+            dictionnary_words[word] = model[word]
+
+    #to save
+    np.save('dictionary_pretrained.npy', dictionnary_words)        
+    
+    #to load
+    #read_dictionary = np.load('dictionary_pretrained.npy').item()
+    
 def set_of_words(reviews):
     '''
     create the set of words
@@ -597,8 +622,8 @@ def set_of_words(reviews):
     flat_word_list = [item for sublist in split_reviews for item in sublist]
     unique_words = set(flat_word_list)
         
-    return unique_words
-
+    return unique_words 
+    
 def selectWords(unique_words, pre_train_data):
 
     words = []
@@ -620,27 +645,10 @@ def main():
                                    not conf['run']['cache_clean'])
         sentiments = np.array(train_data['sentiment'], dtype=np.bool_)
 
-        unique_words = set_of_words(reviews)
         
-        #pre-trained model 
-        model = gensim.models.KeyedVectors.load_word2vec_format('./GoogleNews-vectors-negative300.bin', binary=True)
-
-        #creation dictionary 
-        dictionnary_words = {}
-        
-        for word in unique_words:
-            if word in model: 
-                dictionnary_words[word] = model[word]
-
-        #to save
-        np.save('dictionary_pretrained.npy', dictionnary_words)        
-        
-        #to load
-        #read_dictionary = np.load('dictionary_pretrained.npy').item()
-
-        '''
         def mk_vectorizer():
-            return _make_vectorizer(conf)
+            return 1
+        _make_vectorizer(conf)
 
         def mk_classifier():
             return _make_classifier(conf)
@@ -650,7 +658,7 @@ def main():
                          conf['out']['result'],
                          conf['out']['wrong_result'],
                          conf['run']['number_splits'])
-        '''
+        
         
     else:
         raise NotImplementedError()
