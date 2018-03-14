@@ -115,18 +115,20 @@ _DEFAULT_CONFIG = {
     },
     'bagofwords': {},
     'word2vec': {
+        'data': 'dictionary', #choice between {'dictionary', 'model'}
         'model':    str(_PROJECT_ROOT / 'results'
                                       / '300features_40minwords_10context'),
-        'dictionary_pretrained': str(_PROJECT_ROOT / 'results' / 'dictionary_pretrained.npy'),
+        'dictionary': str(_PROJECT_ROOT / 'results' / 'dictionary_pretrained.npy'),
         'retrain':  False,
         # Averaging strategy to use, one of {'average', 'k-means'}
-        'strategy': 'k-means'
+        'strategy': 'average',
     },
     'k-means': {
         'number_clusters_frac': 0.2,  # NOTE: This argument is required!
         'max_iter':             100,
         'n_jobs':               2,
     },
+    'average' : {}
 }
 
 
@@ -324,12 +326,17 @@ def optimization_run(ids: Type[np.ndarray],
         train_sentiments = sentiments[train_index]
         vectorizer = mk_vectorizer()
         classifier = mk_classifier()
-
-        print(train_reviews[0])
-        logging.info('Transforming training data...')
-        train_data_features = vectorizer.fit_transform(train_reviews)
-        logging.info('Transforming test data...')
-        test_data_features = vectorizer.transform(test_reviews)
+        
+        if(conf['vectorizer']['type'] == 'word2vec' and conf['word2vec']['data'] == 'dictionary'):
+            logging.info('Transforming training data...')
+            train_data_features = vectorizer.fit_transform_pretrained(train_reviews) 
+            logging.info('Transforming test data...')
+            test_data_features = vectorizer.transform_pretrained(test_reviews) 
+        else : 
+            logging.info('Transforming training data...')
+            train_data_features = vectorizer.fit_transform(train_reviews) 
+            logging.info('Transforming test data...')
+            test_data_features = vectorizer.transform(test_reviews) 
         logging.info('Fitting...')
         classifier = classifier.fit(train_data_features, train_sentiments)
         logging.info('Predicting test labels...')
@@ -380,7 +387,7 @@ class SimpleAverager(object):
         :return: The average of ``words``.
         :rtype: np.ndarray
         """
-        assert isinstance(words, List)
+        #assert isinstance(words, List)
         assert type(model) == KeyedVectors
         assert isinstance(known_words, Set)
         assert type(average_vector) == np.ndarray
@@ -499,7 +506,7 @@ class KMeansAverager(object):
 
         logging.info('Running k-means + labeling...')
         start = time.time()
-        cluster_indices = self.kmeans.fit_predict(model.syn0)
+        cluster_indices = self.kmeans.fit_predict(model.vectors)
         end = time.time()
         logging.info('Done with k-means clustering in {:.0f} seconds!'
                      .format(end - start))
@@ -548,11 +555,12 @@ class Word2VecVectorizer(object):
             # TODO: We do not really need the whole Word2Vec model,
             # KeyedVectors should suffice.
             self.model = Word2Vec.load(model_file, **model_args)
-            self.dictionary = conf['word2vec']['dictionary_pretrained']
 
+        self.dictionary = np.load(conf['word2vec']['dictionary']).item()
         self.model = self.model.wv
         self.averager = \
             Word2VecVectorizer._make_averager_fn[averager](**averager_args)
+        
 
     def fit_transform(self, reviews):
         return self.averager.fit_transform(reviews, self.model)
@@ -560,7 +568,35 @@ class Word2VecVectorizer(object):
     def transform(self, reviews):
         return self.averager.transform(reviews, self.model)
     
+    def _make_avg_feature_vector_pretrained(review, dictionary, known_words, vector):
+        
+        word_count = sum(
+            1 for _ in map(lambda x: np.add(vector, dictionary[x],
+                                            out=vector),
+                           filter(lambda x: x in known_words, review))
+        )
+        return np.divide(vector, float(word_count), out=vector)
+    
+    def transform_pretrained(self, reviews):
+        
+        number_features = len(self.dictionary['dog'])
+        (number_reviews,) = reviews.shape
+        # NOTE: Will this work OK for large models?
+        known_words = self.dictionary.keys()
 
+        feature_vectors = np.zeros(
+            (number_reviews, number_features), dtype='float32')
+        for (i, (review, vector)) in enumerate(zip(reviews, feature_vectors)):
+            if i % 1000 == 0:
+                logging.info('PROGRESS: At review #{} of {}...'
+                             .format(i, number_reviews))
+            Word2VecVectorizer._make_avg_feature_vector_pretrained(
+                review, self.dictionary, known_words, vector)
+        return feature_vectors
+    
+    def fit_transform_pretrained(self, reviews):
+        return self.transform_pretrained(reviews)
+        
 
 def _make_vectorizer(conf):
     type_str = conf['vectorizer']['type']
@@ -633,6 +669,7 @@ def selectWords(unique_words, pre_train_data):
                 intermediate_list.append(wordPre)
 
     return words
+
     
 def main():
     logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s',
@@ -647,8 +684,7 @@ def main():
 
         
         def mk_vectorizer():
-            return 1
-        _make_vectorizer(conf)
+            return _make_vectorizer(conf)
 
         def mk_classifier():
             return _make_classifier(conf)
