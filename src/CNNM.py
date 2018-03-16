@@ -8,6 +8,7 @@ from keras.datasets import imdb
 from keras.models import Sequential
 from keras.layers import Dense
 from keras.layers import Flatten
+from keras.layers import BatchNormalization
 from keras.layers.convolutional import Conv1D
 from keras.layers.convolutional import MaxPooling1D
 from keras.layers.embeddings import Embedding
@@ -30,8 +31,11 @@ X_test = sequence.pad_sequences(X_test, maxlen=max_words)
 
 # create the model
 model = Sequential()
-model.add(Embedding(top_words, 32, input_length=max_words))
-model.add(Conv1D(filters=32, kernel_size=4, padding='same', activation='relu', use_bias = True))
+model.add(Embedding(top_words, 100, input_length=max_words))
+model.add(Conv1D(filters=90, kernel_size=4, padding='same', activation='relu', use_bias = True))
+#filters can be max?
+#check overfitiing
+#model.add(BatchNormalization(epsilon=0.001, center=True, scale=True))
 model.add(MaxPooling1D(pool_size=500))
 model.add(Flatten())
 model.add(Dense(250, activation='relu', use_bias = True))

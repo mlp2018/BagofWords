@@ -105,12 +105,20 @@ _DEFAULT_CONFIG = {
         # Type of the classifier to use, one of {'random-forest', 'logistic-regression', 'naive-bayes'}
         # NOTE: Currently, 'random-forest' is the only working option.
 	# for 'naive-bayes', activate alpha arg. 
-        'type': 'naive-bayes',
+        'type': 'logistic-regression',
         'args': {
-	     'alpha': 0.1,
-            #'n_estimators': 100,
-            #'max_features': 10000,
-            #'n_jobs':       4,
+	     #'alpha': 0.1,  #Naive-bayes
+	     'penalty':'l2', #for logistic regression
+	     'dual':True,    #for logistic regression
+	     'tol': 0.0001,  #for logistic regression
+	     'C':1,          #for logistic regression
+	     'fit_intercept': True, #for logistic regression
+	     'intercept_scaling':1.0, #for logistic regression
+	     'class_weight':None, #for logistic regression
+	     'random_state':None  #for logistic regression
+            #'n_estimators': 100,   #Random forest
+            #'max_features': 10000, #Random forest
+            #'n_jobs':       4,     #Random forest
         },
     },
     'run': {
