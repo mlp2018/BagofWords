@@ -115,7 +115,7 @@ _DEFAULT_CONFIG = {
     },
     'bagofwords': {},
     'word2vec': {
-        # data you want to use, one of {'dictionary', 'model'}
+        # data you want to use, one of {'model', 'dictionary'}
         'data': 'model', 
         'model':    str(_PROJECT_ROOT / 'results'
                                       / '300features_40minwords_10context'),
@@ -328,16 +328,10 @@ def optimization_run(ids: Type[np.ndarray],
         vectorizer = mk_vectorizer()
         classifier = mk_classifier()
         
-        if(conf['vectorizer']['type'] == 'word2vec' and conf['word2vec']['data'] == 'dictionary'):
-            logging.info('Transforming training data...')
-            train_data_features = vectorizer.fit_transform_pretrained(train_reviews) 
-            logging.info('Transforming test data...')
-            test_data_features = vectorizer.transform_pretrained(test_reviews) 
-        else : 
-            logging.info('Transforming training data...')
-            train_data_features = vectorizer.fit_transform(train_reviews) 
-            logging.info('Transforming test data...')
-            test_data_features = vectorizer.transform(test_reviews) 
+        logging.info('Transforming training data...')
+        train_data_features = vectorizer.fit_transform(train_reviews) 
+        logging.info('Transforming test data...')
+        test_data_features = vectorizer.transform(test_reviews) 
         logging.info('Fitting...')
         classifier = classifier.fit(train_data_features, train_sentiments)
         logging.info('Predicting test labels...')
@@ -370,7 +364,7 @@ class SimpleAverager(object):
 
     @staticmethod
     def _make_avg_feature_vector(
-            words: List[str], model: Type[KeyedVectors], known_words: Set[str],
+            words: List[str], model: Type[dict], known_words: Set[str],
             average_vector: Type[np.ndarray]) -> Type[np.ndarray]:
         """
         Given a list of words, returns the their average.
@@ -379,7 +373,7 @@ class SimpleAverager(object):
         :type words: List[str]
         :param model: Words representation, i.e. the "word vectors"-part of
                       Word2Vec model.
-        :type model: KeyedVectors,
+        :type model: dict,
         :param known_words: Set of all words that the model knows.
         :type known_words: Set[str]
         :param average_vector: Pre-allocated zero-initialised vector. It will
@@ -389,8 +383,8 @@ class SimpleAverager(object):
         :rtype: np.ndarray
         """
         #assert isinstance(words, List)
-        assert type(model) == KeyedVectors
-        assert isinstance(known_words, Set)
+        assert type(model) == dict
+        #assert isinstance(known_words, Set)
         assert type(average_vector) == np.ndarray
         word_count = sum(
             1 for _ in map(lambda x: np.add(average_vector, model[x],
@@ -399,8 +393,9 @@ class SimpleAverager(object):
         )
         return np.divide(average_vector, float(word_count), out=average_vector)
 
+
     def transform(self, reviews: Type[np.ndarray],
-                  model: Type[KeyedVectors]) -> Type[np.ndarray]:
+                  model: Type[dict]) -> Type[np.ndarray]:
         """
         Given a list of reviews and a word2vec model, returns an array of
         average feature vectors.
@@ -408,16 +403,16 @@ class SimpleAverager(object):
         :param reviews: Reviews to transform.
         :type reviews: 'numpy.ndarray' of ``list`` of shape ``(#reviews,)``
         :param model: Word2Vec model.
-        :type model: KeyedVectors
+        :type model: dict
         :return: Array of average feature vectors.
         :rtype: 'numpy.ndarray' of shape ``(#reviews, #features)``
         """
         assert type(reviews) == np.ndarray
-        assert type(model) == KeyedVectors
-        (_, number_features) = model.syn0.shape
+        assert type(model) == dict
+        #don't know how to do that properly 
+        number_features = len(model['dog'])
         (number_reviews,) = reviews.shape
-        # NOTE: Will this work OK for large models?
-        known_words = set(model.index2word)
+        known_words = model.keys()
 
         feature_vectors = np.zeros(
             (number_reviews, number_features), dtype='float32')
@@ -429,7 +424,7 @@ class SimpleAverager(object):
                 review, model, known_words, vector)
         return feature_vectors
 
-    def fit_transform(self, reviews: np.ndarray, model: KeyedVectors):
+    def fit_transform(self, reviews: np.ndarray, model: dict):
         """
         :py:class:`SimpleAverager` has no state, and :py:func:`fit_transform`
         thus simply calls :py:func:`transform`.
@@ -478,7 +473,7 @@ class KMeansAverager(object):
     # https://github.com/mlp2018/BagofWords/issues/16. Is this the right
     # way to go?
     def transform(self, reviews: Type[np.ndarray],
-                  model: KeyedVectors) -> Type[np.ndarray]:
+                  model: dict) -> Type[np.ndarray]:
         """
         Given a list of reviews, transforms them all to the bag of centroids
         representation.
@@ -494,9 +489,9 @@ class KMeansAverager(object):
             KMeansAverager._make_bag_of_centroids(
                 review.split(), self.word2centroid, bag)
         return bags
-
+            
     def fit_transform(self, reviews: Type[np.ndarray],
-                      model: Type[KeyedVectors]) -> Type[np.ndarray]:
+                      model: Type[dict]) -> Type[np.ndarray]:
         """
         Given a list of reviews, runs k-means clustering on them and returns
         them in the bag of centroids representation.
@@ -504,10 +499,12 @@ class KMeansAverager(object):
         (num_reviews,) = reviews.shape
         num_clusters = int(self.number_clusters_frac * num_reviews)
         self.kmeans = KMeans(n_clusters=num_clusters, **self.kmeans_args)
-
+        
+        vectors = np.array(list(model.values()))
+        
         logging.info('Running k-means + labeling...')
         start = time.time()
-        cluster_indices = self.kmeans.fit_predict(model.vectors)
+        cluster_indices = self.kmeans.fit_predict(vectors)
         end = time.time()
         logging.info('Done with k-means clustering in {:.0f} seconds!'
                      .format(end - start))
@@ -515,7 +512,7 @@ class KMeansAverager(object):
         # NOTE: I'm afraid this will go wrong for big word2vec models such as
         # the pre-trained Google's one.
         logging.info('Creating word→index map...')
-        self.word2centroid = dict(zip(model.index2word, cluster_indices))
+        self.word2centroid = dict(zip(model.keys(), cluster_indices))
 
         return self.transform(reviews, model)
 
@@ -540,8 +537,9 @@ class Word2VecVectorizer(object):
         self.model = None
         self.averager = None
         self.dictionary = None
+        self.model_dictionary = None
         self.word2centroid = None
-
+        
         if train_data is not None:
             logging.info('Training Word2Vec model...')
             start = time.time()
@@ -557,95 +555,30 @@ class Word2VecVectorizer(object):
             # TODO: We do not really need the whole Word2Vec model,
             # KeyedVectors should suffice.
             self.model = Word2Vec.load(model_file, **model_args)
-
-        self.dictionary = np.load(conf['word2vec']['dictionary']).item()
+        
         self.model = self.model.wv
+        self.model_dictionary = self.keyedVectors_to_dict()
+        self.dictionary = np.load(conf['word2vec']['dictionary']).item()       
         self.averager = \
             Word2VecVectorizer._make_averager_fn[averager](**averager_args)
         
 
     def fit_transform(self, reviews):
-        return self.averager.fit_transform(reviews, self.model)
+        return self.averager.fit_transform(reviews, self.model_dictionary)
 
     def transform(self, reviews):
-        return self.averager.transform(reviews, self.model)
+        return self.averager.transform(reviews, self.model_dictionary)
     
-    def _make_avg_feature_vector_pretrained(review, dictionary, known_words, vector):
+    def keyedVectors_to_dict(self):
+        """
+        Create a dictionary from KeyedVectors 
+        """
+        dictionary = {}
         
-        word_count = sum(
-            1 for _ in map(lambda x: np.add(vector, dictionary[x],
-                                            out=vector),
-                           filter(lambda x: x in known_words, review))
-        )
-        return np.divide(vector, float(word_count), out=vector)
-    
-    def _make_bag_of_centroids_pretrained(words, word2centroid, bag_of_centroids):
-
-        for word in words:
-            i = word2centroid.get(word)
-            if i is not None:
-                bag_of_centroids[i] += 1
-            else:
-                warnings.warn(('While creating a bag of centroids: {!r} is '
-                               'not in the word-index map.').format(word))
-        return bag_of_centroids
-    
-    def transform_pretrained(self, reviews):
-        
-        if conf['word2vec']['strategy'] == 'average':
-        
-            number_features = len(self.dictionary['dog'])
-            (number_reviews,) = reviews.shape
-            # NOTE: Will this work OK for large models?
-            known_words = self.dictionary.keys()
-    
-            feature_vectors = np.zeros(
-                (number_reviews, number_features), dtype='float32')
-            for (i, (review, vector)) in enumerate(zip(reviews, feature_vectors)):
-                if i % 1000 == 0:
-                    logging.info('PROGRESS: At review #{} of {}...'
-                                 .format(i, number_reviews))
-                Word2VecVectorizer._make_avg_feature_vector_pretrained(
-                    review, self.dictionary, known_words, vector)
-            return feature_vectors
-        
-        if conf['word2vec']['strategy'] == 'k-means': 
+        for key in self.model.index2word:
+            dictionary[key] = self.model[key]
             
-            (num_reviews,) = reviews.shape
-            logging.info('Creating bags of centroids...')
-            bags = np.zeros((num_reviews, self.averager.kmeans.n_clusters), dtype='float32')
-            for (review, bag) in zip(reviews, bags):
-                Word2VecVectorizer._make_bag_of_centroids_pretrained(
-                    review.split(), self.word2centroid, bag)
-                return bags
-    
-    def fit_transform_pretrained(self, reviews):
-        
-        if conf['word2vec']['strategy'] == 'average': 
-            return self.transform_pretrained(reviews)
-        
-        
-        if conf['word2vec']['strategy'] == 'k-means': 
-            (num_reviews,) = reviews.shape
-            num_clusters = int(self.averager.number_clusters_frac * num_reviews)
-            self.averager.kmeans = KMeans(n_clusters=num_clusters, **self.averager.kmeans_args)
-            
-            vectors = np.array(list(self.dictionary.values()))
-            
-            logging.info('Running k-means + labeling...')
-            start = time.time()
-            cluster_indices = self.averager.kmeans.fit_predict(vectors)
-            end = time.time()
-            logging.info('Done with k-means clustering in {:.0f} seconds!'
-                         .format(end - start))
-    
-            # NOTE: I'm afraid this will go wrong for big word2vec models such as
-            # the pre-trained Google's one.
-            logging.info('Creating word→index map...')
-            self.word2centroid = dict(zip(self.dictionary.keys(), cluster_indices))
-    
-            return self.transform_pretrained(reviews)
-            
+        return dictionary            
         
 
 def _make_vectorizer(conf):
@@ -676,13 +609,13 @@ def _make_classifier(conf):
 
 
 
-def createDictionaryPretrained(know_words):
+def createDictionaryPretrained(reviews):
     unique_words = set_of_words(reviews)
         
     model = gensim.models.KeyedVectors.load_word2vec_format('./GoogleNews-vectors-negative300.bin', binary=True)
     
     dictionnary_words = {}
-    for word in know_words:
+    for word in unique_words:
         if word in model: 
             dictionnary_words[word] = model[word]
 
