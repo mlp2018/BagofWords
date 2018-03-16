@@ -115,13 +115,14 @@ _DEFAULT_CONFIG = {
     },
     'bagofwords': {},
     'word2vec': {
-        'data': 'dictionary', #choice between {'dictionary', 'model'}
+        # data you want to use, one of {'dictionary', 'model'}
+        'data': 'model', 
         'model':    str(_PROJECT_ROOT / 'results'
                                       / '300features_40minwords_10context'),
         'dictionary': str(_PROJECT_ROOT / 'results' / 'dictionary_pretrained.npy'),
         'retrain':  False,
         # Averaging strategy to use, one of {'average', 'k-means'}
-        'strategy': 'average',
+        'strategy': 'k-means',
     },
     'k-means': {
         'number_clusters_frac': 0.2,  # NOTE: This argument is required!
@@ -434,8 +435,8 @@ class SimpleAverager(object):
         thus simply calls :py:func:`transform`.
         """
         return self.transform(reviews, model)
-
-
+    
+        
 class KMeansAverager(object):
     """
     This class implements the 'k-means' strategy for reducing a list of
@@ -539,6 +540,7 @@ class Word2VecVectorizer(object):
         self.model = None
         self.averager = None
         self.dictionary = None
+        self.word2centroid = None
 
         if train_data is not None:
             logging.info('Training Word2Vec model...')
@@ -577,25 +579,73 @@ class Word2VecVectorizer(object):
         )
         return np.divide(vector, float(word_count), out=vector)
     
+    def _make_bag_of_centroids_pretrained(words, word2centroid, bag_of_centroids):
+
+        for word in words:
+            i = word2centroid.get(word)
+            if i is not None:
+                bag_of_centroids[i] += 1
+            else:
+                warnings.warn(('While creating a bag of centroids: {!r} is '
+                               'not in the word-index map.').format(word))
+        return bag_of_centroids
+    
     def transform_pretrained(self, reviews):
         
-        number_features = len(self.dictionary['dog'])
-        (number_reviews,) = reviews.shape
-        # NOTE: Will this work OK for large models?
-        known_words = self.dictionary.keys()
-
-        feature_vectors = np.zeros(
-            (number_reviews, number_features), dtype='float32')
-        for (i, (review, vector)) in enumerate(zip(reviews, feature_vectors)):
-            if i % 1000 == 0:
-                logging.info('PROGRESS: At review #{} of {}...'
-                             .format(i, number_reviews))
-            Word2VecVectorizer._make_avg_feature_vector_pretrained(
-                review, self.dictionary, known_words, vector)
-        return feature_vectors
+        if conf['word2vec']['strategy'] == 'average':
+        
+            number_features = len(self.dictionary['dog'])
+            (number_reviews,) = reviews.shape
+            # NOTE: Will this work OK for large models?
+            known_words = self.dictionary.keys()
+    
+            feature_vectors = np.zeros(
+                (number_reviews, number_features), dtype='float32')
+            for (i, (review, vector)) in enumerate(zip(reviews, feature_vectors)):
+                if i % 1000 == 0:
+                    logging.info('PROGRESS: At review #{} of {}...'
+                                 .format(i, number_reviews))
+                Word2VecVectorizer._make_avg_feature_vector_pretrained(
+                    review, self.dictionary, known_words, vector)
+            return feature_vectors
+        
+        if conf['word2vec']['strategy'] == 'k-means': 
+            
+            (num_reviews,) = reviews.shape
+            logging.info('Creating bags of centroids...')
+            bags = np.zeros((num_reviews, self.averager.kmeans.n_clusters), dtype='float32')
+            for (review, bag) in zip(reviews, bags):
+                Word2VecVectorizer._make_bag_of_centroids_pretrained(
+                    review.split(), self.word2centroid, bag)
+                return bags
     
     def fit_transform_pretrained(self, reviews):
-        return self.transform_pretrained(reviews)
+        
+        if conf['word2vec']['strategy'] == 'average': 
+            return self.transform_pretrained(reviews)
+        
+        
+        if conf['word2vec']['strategy'] == 'k-means': 
+            (num_reviews,) = reviews.shape
+            num_clusters = int(self.averager.number_clusters_frac * num_reviews)
+            self.averager.kmeans = KMeans(n_clusters=num_clusters, **self.averager.kmeans_args)
+            
+            vectors = np.array(list(self.dictionary.values()))
+            
+            logging.info('Running k-means + labeling...')
+            start = time.time()
+            cluster_indices = self.averager.kmeans.fit_predict(vectors)
+            end = time.time()
+            logging.info('Done with k-means clustering in {:.0f} seconds!'
+                         .format(end - start))
+    
+            # NOTE: I'm afraid this will go wrong for big word2vec models such as
+            # the pre-trained Google's one.
+            logging.info('Creating word→index map...')
+            self.word2centroid = dict(zip(self.dictionary.keys(), cluster_indices))
+    
+            return self.transform_pretrained(reviews)
+            
         
 
 def _make_vectorizer(conf):
@@ -626,23 +676,17 @@ def _make_classifier(conf):
 
 
 
-def createDictionaryPretrained(reviews):
+def createDictionaryPretrained(know_words):
     unique_words = set_of_words(reviews)
         
-    #pre-trained model 
     model = gensim.models.KeyedVectors.load_word2vec_format('./GoogleNews-vectors-negative300.bin', binary=True)
-
-    #creation dictionary 
-    dictionnary_words = {}
     
-    for word in unique_words:
+    dictionnary_words = {}
+    for word in know_words:
         if word in model: 
             dictionnary_words[word] = model[word]
 
-    #to save
-    np.save('dictionary_pretrained.npy', dictionnary_words)        
-    
-    #to load
+    np.save('dictionary_pretrained_16490.npy', dictionnary_words)        
     #read_dictionary = np.load('dictionary_pretrained.npy').item()
     
 def set_of_words(reviews):
@@ -660,17 +704,6 @@ def set_of_words(reviews):
         
     return unique_words 
     
-def selectWords(unique_words, pre_train_data):
-
-    words = []
-    
-    for wordSet in unique_words:
-            if wordPre in pre_train_data:
-                intermediate_list.append(wordPre)
-
-    return words
-
-    
 def main():
     logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s',
                         level=logging.INFO)
@@ -681,7 +714,6 @@ def main():
                                    conf['run']['remove_stopwords'],
                                    not conf['run']['cache_clean'])
         sentiments = np.array(train_data['sentiment'], dtype=np.bool_)
-
         
         def mk_vectorizer():
             return _make_vectorizer(conf)
@@ -693,8 +725,7 @@ def main():
                          mk_vectorizer, mk_classifier,
                          conf['out']['result'],
                          conf['out']['wrong_result'],
-                         conf['run']['number_splits'])
-        
+                         conf['run']['number_splits'])        
         
     else:
         raise NotImplementedError()
