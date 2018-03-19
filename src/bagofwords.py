@@ -68,12 +68,12 @@ _PROJECT_ROOT = _get_current_file_dir() / '..'
 # Default configuration options.
 _DEFAULT_CONFIG = {
     'in': {
-        'labeled':   #str(_PROJECT_ROOT / 'data' / 'labeledTrainData.tsv'),
-                     str(_PROJECT_ROOT / 'data' / 'labeledTrainDataSmall.tsv'),
+        'labeled':   str(_PROJECT_ROOT / 'data' / 'labeledTrainData.tsv'),
+                     #str(_PROJECT_ROOT / 'data' / 'labeledTrainDataSmall.tsv'),
         'unlabeled': str(_PROJECT_ROOT / 'data' / 'unlabeledTrainData.tsv'),
         'test':      str(_PROJECT_ROOT / 'data' / 'testData.tsv'),
-        'clean':     #str(_PROJECT_ROOT / 'data' / 'cleanReviews.tsv'),
-                     str(_PROJECT_ROOT / 'data' / 'cleanReviewsSmall.tsv'),
+        'clean':     str(_PROJECT_ROOT / 'data' / 'cleanReviews.tsv'),
+                     #str(_PROJECT_ROOT / 'data' / 'cleanReviewsSmall.tsv'),
     },
     'out': {
         'result':       str(_PROJECT_ROOT / 'results' / 'Prediction.csv'),
@@ -103,20 +103,21 @@ _DEFAULT_CONFIG = {
     # }
     'classifier': {
         # Type of the classifier to use, one of {'random-forest', 'neural-network'}
-        'type': 'neural-network',
+        'type': 'random-forest',
+        #'type': 'neural-network',
         'args': {
+            # random-forest arguments
+            'n_estimators': 100,
+            # 'max_features': 20000,
+            'n_jobs':       4,
 # =============================================================================
-#             # random-forest arguments
-#             'n_estimators': 100,
-#             # 'max_features': 20000,
-#             'n_jobs':       4,
+#             # neural-network arguments
+#             'batch_size': 100,
+#             'n_steps': 1000,
+#             'n_hidden_units1': 10,
+#             'n_hidden_units2': 10,
+#             'n_classes': 2,
 # =============================================================================
-            # neural-network arguments
-            'batch_size': 100,
-            'n_steps': 1000,
-            'n_hidden_units1': 10,
-            'n_hidden_units2': 10,
-            'n_classes': 2,
         },
     },
     'run': {
