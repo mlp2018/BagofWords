@@ -68,12 +68,12 @@ _PROJECT_ROOT = _get_current_file_dir() / '..'
 # Default configuration options.
 _DEFAULT_CONFIG = {
     'in': {
-        'labeled':   str(_PROJECT_ROOT / 'data' / 'labeledTrainData.tsv'),
-                     #str(_PROJECT_ROOT / 'data' / 'labeledTrainDataSmall.tsv'),
+        'labeled':   #str(_PROJECT_ROOT / 'data' / 'labeledTrainData.tsv'),
+                     str(_PROJECT_ROOT / 'data' / 'labeledTrainDataSmall.tsv'),
         'unlabeled': str(_PROJECT_ROOT / 'data' / 'unlabeledTrainData.tsv'),
         'test':      str(_PROJECT_ROOT / 'data' / 'testData.tsv'),
-        'clean':     str(_PROJECT_ROOT / 'data' / 'cleanReviews.tsv'),
-                     #str(_PROJECT_ROOT / 'data' / 'cleanReviewsSmall.tsv'),
+        'clean':     #str(_PROJECT_ROOT / 'data' / 'cleanReviews.tsv'),
+                     str(_PROJECT_ROOT / 'data' / 'cleanReviewsSmall.tsv'),
     },
     'out': {
         'result':       str(_PROJECT_ROOT / 'results' / 'Prediction.csv'),
@@ -103,21 +103,21 @@ _DEFAULT_CONFIG = {
     # }
     'classifier': {
         # Type of the classifier to use, one of {'random-forest', 'neural-network'}
-        'type': 'random-forest',
-        #'type': 'neural-network',
+        #'type': 'random-forest',
+        'type': 'neural-network',
         'args': {
-            # random-forest arguments
-            'n_estimators': 100,
-            # 'max_features': 20000,
-            'n_jobs':       4,
 # =============================================================================
-#             # neural-network arguments
-#             'batch_size': 100,
-#             'n_steps': 1000,
-#             'n_hidden_units1': 10,
-#             'n_hidden_units2': 10,
-#             'n_classes': 2,
-# =============================================================================
+#             # random-forest arguments
+#             'n_estimators': 100,
+#             # 'max_features': 20000,
+#             'n_jobs':       4,
+# # =============================================================================
+            # neural-network arguments
+            'batch_size': 100,
+            'n_steps': 1000,
+            'n_hidden_units1': 10,
+            'n_hidden_units2': 10,
+            'n_classes': 2,
         },
     },
     'run': {
@@ -852,7 +852,8 @@ def main():
                          conf['out']['wrong_result'])
     elif conf['run']['type'] == 'submission':
         train_data = _read_data_from(conf['in']['labeled'])
-        test_data = _read_data_from(conf['in']['test'])
+        test_data = _read_data_from(conf['in']['test'])[:100] # If we don't slice until :100, a ValueError is raised.
+        # Why does the test data need to have the same size as the training data?
         ids = np.array(test_data['id'], dtype=np.unicode_)
         reviews = clean_up_reviews(train_data['review'],
                                    conf['run']['remove_stopwords'],
