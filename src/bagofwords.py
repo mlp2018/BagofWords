@@ -44,6 +44,7 @@ from sklearn.ensemble import RandomForestClassifier
 # from sklearn.feature_extraction.text import VectorizerMixin
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics import roc_auc_score
+import tensorflow as tf
 
 if sys.version_info >= (3, 6):
     from sklearn.model_selection import StratifiedKFold
@@ -67,11 +68,12 @@ _PROJECT_ROOT = _get_current_file_dir() / '..'
 # Default configuration options.
 _DEFAULT_CONFIG = {
     'in': {
-        'labeled':   str(_PROJECT_ROOT / 'data' / 'labeledTrainData.tsv'),
-                   # str(_PROJECT_ROOT / 'data' / 'small_train_data_set.tsv'),
+        'labeled':   #str(_PROJECT_ROOT / 'data' / 'labeledTrainData.tsv'),
+                     str(_PROJECT_ROOT / 'data' / 'labeledTrainDataSmall.tsv'),
         'unlabeled': str(_PROJECT_ROOT / 'data' / 'unlabeledTrainData.tsv'),
         'test':      str(_PROJECT_ROOT / 'data' / 'testData.tsv'),
-        'clean':     str(_PROJECT_ROOT / 'data' / 'cleanReviews.tsv'),
+        'clean':     #str(_PROJECT_ROOT / 'data' / 'cleanReviews.tsv'),
+                     str(_PROJECT_ROOT / 'data' / 'cleanReviewsSmall.tsv'),
     },
     'out': {
         'result':       str(_PROJECT_ROOT / 'results' / 'Prediction.csv'),
@@ -100,13 +102,21 @@ _DEFAULT_CONFIG = {
     #     },
     # }
     'classifier': {
-        # Type of the classifier to use, one of {'random-forest'}
-        # NOTE: Currently, 'random-forest' is the only working option.
-        'type': 'random-forest',
+        # Type of the classifier to use, one of {'random-forest', 'neural-network'}
+        'type': 'neural-network',
         'args': {
-            'n_estimators': 100,
-            # 'max_features': 20000,
-            'n_jobs':       4,
+# =============================================================================
+#             # random-forest arguments
+#             'n_estimators': 100,
+#             # 'max_features': 20000,
+#             'n_jobs':       4,
+# =============================================================================
+            # neural-network arguments
+            'batch_size': 100,
+            'n_steps': 1000,
+            'n_hidden_units1': 10,
+            'n_hidden_units2': 10,
+            'n_classes': 2,
         },
     },
     'run': {
@@ -715,8 +725,107 @@ def _make_vectorizer(conf):
 def _make_classifier(conf):
     _fn = {
         'random-forest': RandomForestClassifier,
+        'neural-network': NeuralNetworkClassifier
     }
     return _fn[conf['classifier']['type']](**conf['classifier']['args'])
+
+
+class NeuralNetworkClassifier(object):
+    
+    def __init__(self, batch_size, n_steps, n_hidden_units1, n_hidden_units2, 
+                 n_classes):
+        self.batch_size = batch_size
+        self.n_steps = n_steps
+        self.n_hidden_units1 = n_hidden_units1
+        self.n_hidden_units2 = n_hidden_units2
+        self.n_classes = n_classes
+        self.model_description = str(n_hidden_units1) + '_' + str(n_hidden_units2)
+        self.model_dir = str(_PROJECT_ROOT / 'models' / 'nn' / self.model_description)
+        
+        
+    def set_up_architecture(self, train_data_features, train_sentiments):
+        
+        # Convert the scarce scipy feature matrices to pandas dataframes
+        print(train_data_features.shape)
+        train_df = pd.DataFrame(train_data_features.toarray())
+        
+        # Convert column names from numbers to strings
+        train_df.columns = train_df.columns.astype(str)
+
+        # Create feature columns which describe how to use the input
+        feat_cols = []
+        for key in train_df.keys(): 
+            feat_cols.append(tf.feature_column.numeric_column(key=key))
+            
+        # Set up classifier with two hidden unit layers
+        classifier = tf.estimator.DNNClassifier(
+                                        feature_columns=feat_cols, 
+                                        hidden_units=[self.n_hidden_units1, 
+                                                      self.n_hidden_units2],
+                                        n_classes=self.n_classes,
+                                        model_dir=self.model_dir)
+        
+        return train_df, classifier
+    
+    def shape_train_input(self, features, labels, batch_size):
+        """An input function for training"""
+        
+        # Convert the input to a dataset
+        dataset = tf.data.Dataset.from_tensor_slices((dict(features), labels))
+    
+        # Shuffle, repeat, and batch the examples
+        dataset = dataset.shuffle(1000).repeat().batch(self.batch_size)
+
+        return dataset
+
+    def fit(self, train_data_features, train_sentiments):
+        
+        train_df, new_classifier = self.set_up_architecture(train_data_features, 
+                                                   train_sentiments)
+        
+        self.classifier = new_classifier.train(input_fn=
+                                      lambda:self.shape_train_input(train_df,
+                                                              train_sentiments,
+                                                              self.batch_size),
+                                                              steps=self.n_steps)
+        
+        return self
+    
+       
+    def shape_pred_input(self, features, batch_size):
+        """An input function for evaluation or prediction"""
+        
+        features=dict(features)
+        
+        # Convert the inputs to a dataset
+        dataset = tf.data.Dataset.from_tensor_slices(features)
+    
+        # Batch the examples
+        assert batch_size is not None, "batch_size must not be None"
+        dataset = dataset.batch(self.batch_size)
+        
+        print(dataset)
+    
+        return dataset
+    
+    def predict(self, test_data_features):
+        
+        # Convert the scarce scipy feature matrices to pandas dataframes
+        test_df = pd.DataFrame(test_data_features.toarray())
+        
+        # Convert column names from numbers to strings
+        test_df.columns = test_df.columns.astype(str)
+        
+        predictions = self.classifier.predict(input_fn=
+                                    lambda:self.shape_pred_input(test_df, 
+                                                            self.batch_size))
+        
+        predicted_labels = []
+        
+        for pred_dict in predictions:
+            predicted_labels.append(pred_dict['class_ids'][0])
+            
+        return predicted_labels
 
 
 def main():
