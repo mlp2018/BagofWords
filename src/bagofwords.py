@@ -39,7 +39,7 @@ import nltk.tokenize
 import numpy as np
 import pandas as pd
 # from scipy.sparse import csr_matrix
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, MiniBatchKMeans
 from sklearn.ensemble import RandomForestClassifier
 # from sklearn.feature_extraction.text import VectorizerMixin
 from sklearn.feature_extraction.text import CountVectorizer
@@ -79,7 +79,7 @@ _DEFAULT_CONFIG = {
     },
     'vectorizer': {
         # Type of the vectorizer, one of {'word2vec', 'bagofwords'}
-        'type': 'bagofwords',
+        'type': 'word2vec',
         'args': {},
         # 'args': {
         #     'size':      300,
@@ -112,7 +112,7 @@ _DEFAULT_CONFIG = {
     'run': {
         # Type of the run, one of {'optimization', 'submission'}
         # NOTE: Currently, only optimization run is implemented.
-        'type':          'submission',
+        'type': 'optimization',
         'number_splits': 3,
         'remove_stopwords': False,
         'cache_clean': True,
@@ -125,13 +125,19 @@ _DEFAULT_CONFIG = {
         'model':    str(_PROJECT_ROOT / 'results'
                                       / '300features_40minwords_10context'),
         'retrain':  False,
-        # Averaging strategy to use, one of {'average', 'k-means'}
-        'strategy': 'k-means'
+        # Averaging strategy to use, one of {'average', 'k-means', 'mini-batch-k-means'}
+        'strategy': 'mini-batch-k-means'
     },
     'k-means': {
         'number_clusters_frac': 0.2,  # NOTE: This argument is required!
         'max_iter':             100,
         'n_jobs':               2,
+    },
+    'mini-batch-k-means': {
+        'number_clusters_frac': 0.2,
+        'init_size' : 300, 
+        'batch_size': 100,
+            
     },
 }
 
@@ -628,7 +634,10 @@ class KMeansAverager(object):
         """
         (num_reviews,) = reviews.shape
         num_clusters = int(self.number_clusters_frac * num_reviews)
-        self.kmeans = KMeans(n_clusters=num_clusters, **self.kmeans_args)
+        if conf['word2vec']['strategy'] == 'mini-batch-k-means':
+            self.kmeans = MiniBatchKMeans(n_clusters=num_clusters, )
+        if conf['word2vec']['strategy'] == 'k-means':
+            self.kmeans = MiniBatchKMeans(n_clusters=num_clusters, **self.kmeans_args)
 
         logging.info('Running k-means + labeling...')
         start = time.time()
@@ -656,12 +665,13 @@ class Word2VecVectorizer(object):
     _make_averager_fn = {
         'average': SimpleAverager,
         'k-means': KMeansAverager,
+        'mini-batch-k-means': KMeansAverager,
     }
 
     def __init__(self, averager: str, model_file: str,
                  train_data: Iterable[str] = None,
                  model_args={}, averager_args={}):
-        assert averager in {'average', 'k-means'}
+        assert averager in {'average', 'k-means', 'mini-batch-k-means'}
         self.model = None
         self.averager = None
 
