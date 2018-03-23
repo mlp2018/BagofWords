@@ -742,8 +742,7 @@ class NeuralNetworkClassifier(object):
         self.n_classes = n_classes
         self.model_description = str(n_hidden_units1) + '_' + str(n_hidden_units2)
         self.model_dir = str(_PROJECT_ROOT / 'models' / 'nn' / self.model_description)
-        
-        
+
     def set_up_architecture(self, train_data_features, train_sentiments):
         
         # Convert the scarce scipy feature matrices to pandas dataframes
@@ -768,6 +767,9 @@ class NeuralNetworkClassifier(object):
         
         return train_df, classifier
     
+    def check_saves(self):
+        pass        
+    
     def shape_train_input(self, features, labels, batch_size):
         """An input function for training"""
         
@@ -791,8 +793,7 @@ class NeuralNetworkClassifier(object):
                                                               steps=self.n_steps)
         
         return self
-    
-       
+
     def shape_pred_input(self, features, batch_size):
         """An input function for evaluation or prediction"""
         
