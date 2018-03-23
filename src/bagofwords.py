@@ -112,7 +112,7 @@ _DEFAULT_CONFIG = {
     'run': {
         # Type of the run, one of {'optimization', 'submission'}
         # NOTE: Currently, only optimization run is implemented.
-        'type': 'optimization',
+        'type': 'submission',
         'number_splits': 3,
         'remove_stopwords': False,
         'cache_clean': True,
@@ -637,7 +637,7 @@ class KMeansAverager(object):
         if conf['word2vec']['strategy'] == 'mini-batch-k-means':
             self.kmeans = MiniBatchKMeans(n_clusters=num_clusters, )
         if conf['word2vec']['strategy'] == 'k-means':
-            self.kmeans = MiniBatchKMeans(n_clusters=num_clusters, **self.kmeans_args)
+            self.kmeans = KMeans(n_clusters=num_clusters, **self.kmeans_args)
 
         logging.info('Running k-means + labeling...')
         start = time.time()
