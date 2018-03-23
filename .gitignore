@@ -2,3 +2,5 @@ __pycache__
 conf.py
 models/
 src/__pycache__
+src/GoogleNews-vectors-negative300.bin
+src/dict.npy

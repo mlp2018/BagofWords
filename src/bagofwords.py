@@ -53,6 +53,8 @@ else:  # We have an old version of sklearn...
     from sklearn.cross_validation import StratifiedKFold
 from sklearn.model_selection import StratifiedShuffleSplit
 
+import gensim
+
 
 def _get_current_file_dir() -> Path:
     """Returns the directory of the script."""
@@ -65,12 +67,12 @@ def _get_current_file_dir() -> Path:
 # Project root directory, i.e. the github repo directory.
 _PROJECT_ROOT = _get_current_file_dir() / '..'
 
-
 # Default configuration options.
+# WARNING: Please, avoid changing it. Use a local `conf.py` in the project's
+# root directory.
 _DEFAULT_CONFIG = {
     'in': {
         'labeled':   str(_PROJECT_ROOT / 'data' / 'labeledTrainData.tsv'),
-                   # str(_PROJECT_ROOT / 'data' / 'small_train_data_set.tsv'),
         'unlabeled': str(_PROJECT_ROOT / 'data' / 'unlabeledTrainData.tsv'),
         'test':      str(_PROJECT_ROOT / 'data' / 'testData.tsv'),
         'clean':     str(_PROJECT_ROOT / 'data' / 'cleanReviews.tsv'),
@@ -81,70 +83,59 @@ _DEFAULT_CONFIG = {
     },
     'vectorizer': {
         # Type of the vectorizer, one of {'word2vec', 'bagofwords'}
-        'type': 'bagofwords',
+        'type': 'word2vec',
         'args': {},
-        # 'args': {
-        #     'size':      300,
-        #     'min_count': 40,
-        #     'window':    10,
-        #     'sample':    1.E-3,
-        #     'workers':   4,
-        #     'seed':      1,
-        # },
     },
-    # 'vectorizer': {
-    #     'type': 'bagofwords'
-    #     'args': {
-    #         'analyzer': 'word',
-    #         'tokenizer': None,
-    #         'stop_words': None,
-    #         'max_features': 5000
-    #     },
-    # }
     'classifier': {
-        # Type of the classifier to use, one of {'random-forest', 'logistic-regression', 'naive-bayes'}
+    	# Type of the classifier to use, one of {'random-forest', 'logistic-regression', 'naive-bayes'}
         # NOTE: Currently, 'random-forest' is the only working option.
 	# for 'naive-bayes', activate alpha arg. 
         'type': 'logistic-regression',
         'args': {
-	     #'alpha': 0.1,  #Naive-bayes
-	     'penalty':'l2', #for logistic regression
-	     'dual':True,    #for logistic regression
-	     'tol': 0.0001,  #for logistic regression
-	     'C':1,          #for logistic regression
-	     'fit_intercept': True, #for logistic regression
-	     'intercept_scaling':1.0, #for logistic regression
-	     'class_weight':None, #for logistic regression
-	     'random_state':None  #for logistic regression
-            #'n_estimators': 100,   #Random forest
-            #'max_features': 10000, #Random forest
-            #'n_jobs':       4,     #Random forest
+        #For Naive-bayes
+            #'alpha': 0.1,  
+	#For logistic regression    
+	    'penalty':'l2', 
+	    'dual':True,    
+	    'tol': 0.0001,  
+	    'C':1,          
+	    'fit_intercept': True, 
+	    'intercept_scaling':1.0,
+	    'class_weight':None, 
+	    'random_state':None,
+	#For Random Forest  
+            #'n_estimators': 100,
+            #'n_jobs':       4,
         },
     },
     'run': {
         # Type of the run, one of {'optimization', 'submission'}
-        # NOTE: Currently, only optimization run is implemented.
-        'type':          'optimization',
-        'number_splits': 3,
+        'type':             'optimization',
+        'number_splits':    3,
         'remove_stopwords': False,
-        'cache_clean': True,
-        'test_10': True,
-        'random': 40,
-        'alpha': 0.1,
+        'cache_clean':      True,
+        'test_10':          False,
+        'random':           42,
+        'alpha':            0.1,
     },
     'bagofwords': {},
     'word2vec': {
+        # data you want to use, one of {'model', 'dictionary'}
+        'data': 'model', 
         'model':    str(_PROJECT_ROOT / 'results'
                                       / '300features_40minwords_10context'),
+        'dictionary': str(_PROJECT_ROOT / 'dictionary_pretrained.npy'),
         'retrain':  False,
         # Averaging strategy to use, one of {'average', 'k-means'}
-        'strategy': 'k-means'
+        'strategy': 'average'
     },
+    'average': {},
     'k-means': {
         'number_clusters_frac': 0.2,  # NOTE: This argument is required!
         'max_iter':             100,
         'n_jobs':               2,
     },
+    'average' : {}
 }
 
 
@@ -179,6 +170,28 @@ class ReviewPreprocessor(object):
     _tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
 
     @staticmethod
+    def _striphtml(text: str) -> str:
+        assert type(text) == str
+
+        text = re.sub('(www.|http[s]?:\/)(?:[a-zA-Z]|[0-9]|[$-_@.&+]'
+                      '|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+',
+                      '', text)
+        text = BeautifulSoup(text, 'html.parser').get_text()
+        return text
+
+    @staticmethod
+    def _2wordlist(text: str, remove_stopwords: bool = False) -> List[str]:
+        assert type(text) == str
+        assert type(remove_stopwords) == bool
+
+        text = re.sub('[^a-zA-Z]', ' ', text)
+        words = text.lower().split()
+        if remove_stopwords:
+            words = [w for w in words if w not in
+                     ReviewPreprocessor._stopwords]
+        return words
+
+    @staticmethod
     def review2wordlist(review: str, remove_stopwords: bool = False) \
             -> List[str]:
         """
@@ -195,17 +208,9 @@ class ReviewPreprocessor(object):
         assert type(review) == str
         assert type(remove_stopwords) == bool
 
-        review_text = BeautifulSoup(review, 'html.parser').get_text()
-        review_text = re.sub('(www.|http[s]?:\/)(?:[a-zA-Z]|[0-9]|[$-_@.&+]'
-                             '|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+',
-                             '', review_text)
-        review_text = re.sub('[^a-zA-Z]', ' ', review_text)
-
-        words = review_text.lower().split()
-        if remove_stopwords:
-            words = [w for w in words if w not in
-                     ReviewPreprocessor._stopwords]
-        return words
+        return ReviewPreprocessor._2wordlist(
+            ReviewPreprocessor._striphtml(review),
+            remove_stopwords=remove_stopwords)
 
     @staticmethod
     def review2sentences(review: str, remove_stopwords: bool = False) \
@@ -223,9 +228,11 @@ class ReviewPreprocessor(object):
         assert type(remove_stopwords) == bool
 
         # TODO: First preprocess using BeautifulSoup!
-        raw_sentences = ReviewPreprocessor._tokenizer.tokenize(review.strip())
+
+        raw_sentences = ReviewPreprocessor._tokenizer.tokenize(
+            ReviewPreprocessor._striphtml(review))
         return map(
-            lambda x: ReviewPreprocessor.review2wordlist(x, remove_stopwords),
+            lambda x: ReviewPreprocessor._2wordlist(x, remove_stopwords),
             filter(lambda x: x, raw_sentences))
 
 
@@ -257,9 +264,9 @@ def clean_up_reviews(reviews: Iterable[str],
         return _read_data_from(clean_file)['review'].values
     logging.info('Cleaning and parsing the reviews...')
     review = np.array(list(map(
-            lambda x: ' '.join(
-                ReviewPreprocessor.review2wordlist(x, remove_stopwords)),
-            reviews)))
+        lambda x: ' '.join(
+            ReviewPreprocessor.review2wordlist(x, remove_stopwords)),
+        reviews)))
     if not compute_only:
         logging.info('Saving clean data to file "cleanReviews.tsv" ...')
         pd.DataFrame(data={"review": review}) \
@@ -297,8 +304,37 @@ def reviews2sentences(reviews: Iterable[str],
     return R2SIter(reviews, remove_stopwords)
 
 
-def submission_run():
-    raise NotImplementedError()
+def submission_run(reviews: Type[np.ndarray],
+                   sentiments: Type[np.ndarray],
+                   test_reviews: Type[np.ndarray],
+                   ids,
+                   mk_vectorizer: Callable[[], Any],
+                   mk_classifier: Callable[[], Any],
+                   prediction_file: str) -> Type[np.array]:
+    """
+    :param ids: Array of review identifiers.
+    :type ids: 'numpy.ndarray' of shape ``(N,)``
+    :param reviews: Array of raw reviews texts.
+    :type reviews: 'numpy.ndarray' of shape ``(N,)``
+    :param sentiments: Array of review sentiments.
+    :type sentiments: 'numpy.ndarray' of shape ``(N,)``
+    :param test_reviews: Array of test review texts.
+    :type test_reviews: 'numpy.ndarray' of shape ``(N,)``
+    :param mk_vectorizer: Factory function to create a new vectorizer.
+    :type mk_vectorizer: Callable[[], Vectorizer]
+    :type mk_classifier: Callable[[], Classifier]
+    :param prediction_file
+    """
+
+    score, prediction = run_one_fold((reviews, sentiments),
+                                     test_reviews,
+                                     mk_vectorizer(),
+                                     mk_classifier())
+
+    logging.info('Saving all predicted sentiments to {!r}...'
+                 .format(prediction_file))
+    pd.DataFrame(data={'id': ids, 'sentiment': prediction}) \
+        .to_csv(prediction_file, index=False, quoting=3)
 
 
 def bookkeeping(reviews: Type[np.ndarray],
@@ -327,8 +363,12 @@ def run_one_fold(train_data: Tuple[Type[np.ndarray], Type[np.ndarray]],
     :param classifier: Classifier to use.
     :return:           ``(score, predictions)`` tuple.
     """
+    score = None
     (train_reviews, train_labels) = train_data
-    (test_reviews, test_labels) = test_data
+    if isinstance(test_data, tuple):
+        (test_reviews, test_labels) = test_data
+    else:
+        test_reviews = test_data
     logging.info('Transforming training data...')
     train_features = vectorizer.fit_transform(train_reviews)
     logging.info('Transforming test data...')
@@ -337,8 +377,9 @@ def run_one_fold(train_data: Tuple[Type[np.ndarray], Type[np.ndarray]],
     classifier = classifier.fit(train_features, train_labels)
     logging.info('Predicting test labels...')
     prediction = classifier.predict(test_features)
-    score = roc_auc_score(test_labels, prediction)
-    logging.info('ROC AUC for this fold is {}.'.format(score))
+    if isinstance(test_data, tuple):
+        score = roc_auc_score(test_labels, prediction)
+        logging.info('ROC AUC for this fold is {}.'.format(score))
     return score, prediction
 
 
@@ -457,16 +498,15 @@ class SimpleAverager(object):
 
     @staticmethod
     def _make_avg_feature_vector(
-            words: List[str], model: Type[KeyedVectors], known_words: Set[str],
+            words: List[str], model: Type[dict], known_words: Set[str],
             average_vector: Type[np.ndarray]) -> Type[np.ndarray]:
         """
         Given a list of words, returns the their average.
 
-        :param words: Words to average.
-        :type words: List[str]
+        :param str words: Words to average.
         :param model: Words representation, i.e. the "word vectors"-part of
                       Word2Vec model.
-        :type model: KeyedVectors,
+        :type model: dict,
         :param known_words: Set of all words that the model knows.
         :type known_words: Set[str]
         :param average_vector: Pre-allocated zero-initialised vector. It will
@@ -475,19 +515,21 @@ class SimpleAverager(object):
         :return: The average of ``words``.
         :rtype: np.ndarray
         """
-        assert isinstance(words, List)
-        assert type(model) == KeyedVectors
+        # print(type(words))
+        assert isinstance(words, str)
+        assert type(model) == dict
         assert isinstance(known_words, Set)
         assert type(average_vector) == np.ndarray
         word_count = sum(
             1 for _ in map(lambda x: np.add(average_vector, model[x],
                                             out=average_vector),
-                           filter(lambda x: x in known_words, words))
+                           filter(lambda x: x in known_words, words.split()))
         )
         return np.divide(average_vector, float(word_count), out=average_vector)
 
+
     def transform(self, reviews: Type[np.ndarray],
-                  model: Type[KeyedVectors]) -> Type[np.ndarray]:
+                  model: Type[dict]) -> Type[np.ndarray]:
         """
         Given a list of reviews and a word2vec model, returns an array of
         average feature vectors.
@@ -495,16 +537,16 @@ class SimpleAverager(object):
         :param reviews: Reviews to transform.
         :type reviews: 'numpy.ndarray' of ``list`` of shape ``(#reviews,)``
         :param model: Word2Vec model.
-        :type model: KeyedVectors
+        :type model: dict
         :return: Array of average feature vectors.
         :rtype: 'numpy.ndarray' of shape ``(#reviews, #features)``
         """
         assert type(reviews) == np.ndarray
-        assert type(model) == KeyedVectors
-        (_, number_features) = model.syn0.shape
+        assert type(model) == dict
+        #don't know how to do that properly 
+        number_features = len(model['dog'])
         (number_reviews,) = reviews.shape
-        # NOTE: Will this work OK for large models?
-        known_words = set(model.index2word)
+        known_words = model.keys()
 
         feature_vectors = np.zeros(
             (number_reviews, number_features), dtype='float32')
@@ -516,14 +558,14 @@ class SimpleAverager(object):
                 review, model, known_words, vector)
         return feature_vectors
 
-    def fit_transform(self, reviews: np.ndarray, model: KeyedVectors):
+    def fit_transform(self, reviews: np.ndarray, model: dict):
         """
         :py:class:`SimpleAverager` has no state, and :py:func:`fit_transform`
         thus simply calls :py:func:`transform`.
         """
         return self.transform(reviews, model)
-
-
+    
+        
 class KMeansAverager(object):
     """
     This class implements the 'k-means' strategy for reducing a list of
@@ -565,7 +607,7 @@ class KMeansAverager(object):
     # https://github.com/mlp2018/BagofWords/issues/16. Is this the right
     # way to go?
     def transform(self, reviews: Type[np.ndarray],
-                  model: KeyedVectors) -> Type[np.ndarray]:
+                  model: dict) -> Type[np.ndarray]:
         """
         Given a list of reviews, transforms them all to the bag of centroids
         representation.
@@ -581,9 +623,9 @@ class KMeansAverager(object):
             KMeansAverager._make_bag_of_centroids(
                 review.split(), self.word2centroid, bag)
         return bags
-
+            
     def fit_transform(self, reviews: Type[np.ndarray],
-                      model: Type[KeyedVectors]) -> Type[np.ndarray]:
+                      model: Type[dict]) -> Type[np.ndarray]:
         """
         Given a list of reviews, runs k-means clustering on them and returns
         them in the bag of centroids representation.
@@ -591,10 +633,12 @@ class KMeansAverager(object):
         (num_reviews,) = reviews.shape
         num_clusters = int(self.number_clusters_frac * num_reviews)
         self.kmeans = KMeans(n_clusters=num_clusters, **self.kmeans_args)
-
+        
+        vectors = np.array(list(model.values()))
+        
         logging.info('Running k-means + labeling...')
         start = time.time()
-        cluster_indices = self.kmeans.fit_predict(model.syn0)
+        cluster_indices = self.kmeans.fit_predict(vectors)
         end = time.time()
         logging.info('Done with k-means clustering in {:.0f} seconds!'
                      .format(end - start))
@@ -602,7 +646,7 @@ class KMeansAverager(object):
         # NOTE: I'm afraid this will go wrong for big word2vec models such as
         # the pre-trained Google's one.
         logging.info('Creating word→index map...')
-        self.word2centroid = dict(zip(model.index2word, cluster_indices))
+        self.word2centroid = dict(zip(model.keys(), cluster_indices))
 
         return self.transform(reviews, model)
 
@@ -626,7 +670,10 @@ class Word2VecVectorizer(object):
         assert averager in {'average', 'k-means'}
         self.model = None
         self.averager = None
-
+        self.dictionary = None
+        self.model_dictionary = None
+        self.word2centroid = None
+        
         if train_data is not None:
             logging.info('Training Word2Vec model...')
             start = time.time()
@@ -642,17 +689,31 @@ class Word2VecVectorizer(object):
             # TODO: We do not really need the whole Word2Vec model,
             # KeyedVectors should suffice.
             self.model = Word2Vec.load(model_file, **model_args)
-
+        
         self.model = self.model.wv
+        self.model_dictionary = self.keyedVectors_to_dict()
+        self.dictionary = np.load(conf['word2vec']['dictionary']).item()       
         self.averager = \
             Word2VecVectorizer._make_averager_fn[averager](**averager_args)
+        
 
     def fit_transform(self, reviews):
-        return self.averager.fit_transform(reviews, self.model)
+        return self.averager.fit_transform(reviews, self.model_dictionary)
 
     def transform(self, reviews):
-        return self.averager.transform(reviews, self.model)
-
+        return self.averager.transform(reviews, self.model_dictionary)
+    
+    def keyedVectors_to_dict(self):
+        """
+        Create a dictionary from KeyedVectors 
+        """
+        dictionary = {}
+        
+        for key in self.model.index2word:
+            dictionary[key] = self.model[key]
+            
+        return dictionary            
+        
 
 def _make_vectorizer(conf):
     type_str = conf['vectorizer']['type']
@@ -676,13 +737,42 @@ def _make_vectorizer(conf):
 # NOTE: @Andre, this is the place to add other classifiers.
 def _make_classifier(conf):
     _fn = {
-	'logistic-regression':LogisticRegression,
+        'logistic-regression':LogisticRegression,
 	'naive-bayes':MultinomialNB,
         'random-forest': RandomForestClassifier,
     }
     return _fn[conf['classifier']['type']](**conf['classifier']['args'])
 
 
+
+def createDictionaryPretrained(reviews):
+    unique_words = set_of_words(reviews)
+        
+    model = gensim.models.KeyedVectors.load_word2vec_format('./GoogleNews-vectors-negative300.bin', binary=True)
+    
+    dictionnary_words = {}
+    for word in unique_words:
+        if word in model: 
+            dictionnary_words[word] = model[word]
+
+    np.save('dictionary_pretrained_16490.npy', dictionnary_words)        
+    #read_dictionary = np.load('dictionary_pretrained.npy').item()
+    
+def set_of_words(reviews):
+    '''
+    create the set of words
+    :param reviews: 
+
+    '''
+    split_reviews = []
+    for review in reviews:
+        split_reviews.append(review.split())
+    
+    flat_word_list = [item for sublist in split_reviews for item in sublist]
+    unique_words = set(flat_word_list)
+        
+    return unique_words 
+    
 def main():
     logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s',
                         level=logging.INFO)
@@ -693,7 +783,7 @@ def main():
                                    conf['run']['remove_stopwords'],
                                    not conf['run']['cache_clean'])
         sentiments = np.array(train_data['sentiment'], dtype=np.bool_)
-
+        
         def mk_vectorizer():
             return _make_vectorizer(conf)
 
@@ -704,7 +794,29 @@ def main():
                          mk_vectorizer, mk_classifier,
                          conf['run'],
                          conf['out']['wrong_result'])
+    elif conf['run']['type'] == 'submission':
+        train_data = _read_data_from(conf['in']['labeled'])
+        test_data = _read_data_from(conf['in']['test'])
+        ids = np.array(test_data['id'], dtype=np.unicode_)
+        reviews = clean_up_reviews(train_data['review'],
+                                   conf['run']['remove_stopwords'],
+                                   not conf['run']['cache_clean'])
+        sentiments = np.array(train_data['sentiment'], dtype=np.bool_)
+        test_reviews = clean_up_reviews(test_data['review'],
+                                   conf['run']['remove_stopwords'],
+                                   not conf['run']['cache_clean'])
 
+        def mk_vectorizer():
+            return _make_vectorizer(conf)
+
+        def mk_classifier():
+            return _make_classifier(conf)
+
+        submission_run(reviews, sentiments,
+                       test_reviews,
+                       ids,
+                       mk_vectorizer, mk_classifier,
+                       conf['out']['result'])
     else:
         raise NotImplementedError()
 
