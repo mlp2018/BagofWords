@@ -135,7 +135,6 @@ _DEFAULT_CONFIG = {
         'max_iter':             100,
         'n_jobs':               2,
     },
-    'average' : {}
 }
 
 
@@ -518,7 +517,7 @@ class SimpleAverager(object):
         # print(type(words))
         assert isinstance(words, str)
         assert type(model) == dict
-        assert isinstance(known_words, Set)
+        assert isinstance(known_words, Iterable)
         assert type(average_vector) == np.ndarray
         word_count = sum(
             1 for _ in map(lambda x: np.add(average_vector, model[x],
@@ -547,7 +546,6 @@ class SimpleAverager(object):
         number_features = len(model['dog'])
         (number_reviews,) = reviews.shape
         known_words = model.keys()
-
         feature_vectors = np.zeros(
             (number_reviews, number_features), dtype='float32')
         for (i, (review, vector)) in enumerate(zip(reviews, feature_vectors)):
