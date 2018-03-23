@@ -39,6 +39,7 @@ import nltk.tokenize
 import numpy as np
 import pandas as pd
 # from scipy.sparse import csr_matrix
+import sklearn
 from sklearn.cluster import KMeans
 from sklearn.ensemble import RandomForestClassifier
 # from sklearn.feature_extraction.text import VectorizerMixin
@@ -46,11 +47,20 @@ from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics import roc_auc_score
 import tensorflow as tf
 
-if sys.version_info >= (3, 6):
+
+def _get_sklearn_version() -> Tuple[int, int, int]:
+    """
+    Returns the version of scikit-learn as a tuple.
+    """
+    return tuple(map(int, sklearn.__version__.split('.')))
+
+
+if _get_sklearn_version() >= (0, 19, 0):
     from sklearn.model_selection import StratifiedKFold
+    from sklearn.model_selection import StratifiedShuffleSplit
 else:  # We have an old version of sklearn...
     from sklearn.cross_validation import StratifiedKFold
-from sklearn.model_selection import StratifiedShuffleSplit
+    from sklearn.cross_validation import StratifiedShuffleSplit
 
 
 def _get_current_file_dir() -> Path:
@@ -66,14 +76,15 @@ _PROJECT_ROOT = _get_current_file_dir() / '..'
 
 
 # Default configuration options.
+# WARNING: Please, avoid changing it. Use a local `conf.py` in the project's
+# root directory.
 _DEFAULT_CONFIG = {
     'in': {
-        'labeled':   #str(_PROJECT_ROOT / 'data' / 'labeledTrainData.tsv'),
-                     str(_PROJECT_ROOT / 'data' / 'labeledTrainDataSmall.tsv'),
+        'labeled':   str(_PROJECT_ROOT / 'data' / 'labeledTrainData.tsv'),
         'unlabeled': str(_PROJECT_ROOT / 'data' / 'unlabeledTrainData.tsv'),
         'test':      str(_PROJECT_ROOT / 'data' / 'testData.tsv'),
-        'clean':     #str(_PROJECT_ROOT / 'data' / 'cleanReviews.tsv'),
-                     str(_PROJECT_ROOT / 'data' / 'cleanReviewsSmall.tsv'),
+        'clean':     str(_PROJECT_ROOT / 'data' / 'cleanReviews.tsv'),
+                     #str(_PROJECT_ROOT / 'data' / 'cleanReviewsSmall.tsv'),
     },
     'out': {
         'result':       str(_PROJECT_ROOT / 'results' / 'Prediction.csv'),
@@ -81,55 +92,26 @@ _DEFAULT_CONFIG = {
     },
     'vectorizer': {
         # Type of the vectorizer, one of {'word2vec', 'bagofwords'}
-        'type': 'bagofwords',
+        'type': 'word2vec',
         'args': {},
-        # 'args': {
-        #     'size':      300,
-        #     'min_count': 40,
-        #     'window':    10,
-        #     'sample':    1.E-3,
-        #     'workers':   4,
-        #     'seed':      1,
-        # },
     },
-    # 'vectorizer': {
-    #     'type': 'bagofwords'
-    #     'args': {
-    #         'analyzer': 'word',
-    #         'tokenizer': None,
-    #         'stop_words': None,
-    #         'max_features': 5000
-    #     },
-    # }
     'classifier': {
-        # Type of the classifier to use, one of {'random-forest', 'neural-network'}
-        #'type': 'random-forest',
-        'type': 'neural-network',
+        # Type of the classifier to use, one of {'random-forest'}
+        'type': 'random-forest',
         'args': {
-# =============================================================================
-#             # random-forest arguments
-#             'n_estimators': 100,
-#             # 'max_features': 20000,
-#             'n_jobs':       4,
-# # =============================================================================
-            # neural-network arguments
-            'batch_size': 100,
-            'n_steps': 1000,
-            'n_hidden_units1': 10,
-            'n_hidden_units2': 10,
-            'n_classes': 2,
+            'n_estimators': 100,
+            'n_jobs':       4,
         },
     },
     'run': {
         # Type of the run, one of {'optimization', 'submission'}
-        # NOTE: Currently, only optimization run is implemented.
-        'type':          'submission',
-        'number_splits': 3,
+        'type':             'optimization',
+        'number_splits':    3,
         'remove_stopwords': False,
-        'cache_clean': True,
-        'test_10': True,
-        'random': 42,
-        'alpha': 0.1,
+        'cache_clean':      True,
+        'test_10':          False,
+        'random':           42,
+        'alpha':            0.1,
     },
     'bagofwords': {},
     'word2vec': {
@@ -137,8 +119,9 @@ _DEFAULT_CONFIG = {
                                       / '300features_40minwords_10context'),
         'retrain':  False,
         # Averaging strategy to use, one of {'average', 'k-means'}
-        'strategy': 'k-means'
+        'strategy': 'average'
     },
+    'average': {},
     'k-means': {
         'number_clusters_frac': 0.2,  # NOTE: This argument is required!
         'max_iter':             100,
@@ -400,21 +383,28 @@ def split_90_10(data: Tuple[Type[np.ndarray], Type[np.ndarray]],
     Despite the very descriptive name this function does the ``1-alpha`` -
     ``alpha`` split rather than the ``90%`` - ``10%`` one.
 
-    :param data: The data to split.
+    :param data:  The data to split.
     :param alpha: Percentage of data to use for testing.
-    :param seed: Random seed to use for splitting.
+    :param seed:  Random seed to use for splitting.
     :return: ``((reviews to train on, sentiments to train on),
                 (reviews to test on, sentiments to test on))``.
     """
     assert 0 < alpha and alpha < 1
     reviews, labels = data
-    sss = StratifiedShuffleSplit(
-        n_splits=1, test_size=alpha, random_state=seed)
-    for train_index, test_index in sss.split(reviews, labels):
-        x_train = reviews[train_index]
-        x_test = reviews[test_index]
-        y_train = labels[train_index]
-        y_test = labels[test_index]
+    train_index = None
+    test_index = None
+    if _get_sklearn_version() >= (0, 19, 0):
+        train_index, test_index = StratifiedShuffleSplit(
+            n_splits=1, test_size=alpha,
+            random_state=seed).split(reviews, labels).__iter__().__next__()
+    else:
+        train_index, test_index = StratifiedShuffleSplit(
+            labels, n_iter=1, test_size=alpha,
+            random_state=seed).__iter__().__next__()
+    x_train = reviews[train_index]
+    x_test = reviews[test_index]
+    y_train = labels[train_index]
+    y_test = labels[test_index]
     return (x_train, y_train), (x_test, y_test)
 
 
@@ -436,7 +426,7 @@ def run_a_couple_of_folds(data: Tuple[Type[np.ndarray], Type[np.ndarray]],
             (reviews[test_index], labels[test_index]),
             mk_vectorizer(), mk_classifier())
 
-    if sys.version_info >= (3, 6):
+    if _get_sklearn_version() >= (0, 19, 0):
         skf = StratifiedKFold(n_splits=number_splits, shuffle=False)
         for idx, (train_index, test_index) \
                 in enumerate(skf.split(reviews, labels)):
@@ -511,8 +501,7 @@ class SimpleAverager(object):
         """
         Given a list of words, returns the their average.
 
-        :param words: Words to average.
-        :type words: List[str]
+        :param str words: Words to average.
         :param model: Words representation, i.e. the "word vectors"-part of
                       Word2Vec model.
         :type model: KeyedVectors,
@@ -524,14 +513,15 @@ class SimpleAverager(object):
         :return: The average of ``words``.
         :rtype: np.ndarray
         """
-        assert isinstance(words, List)
+        # print(type(words))
+        assert isinstance(words, str)
         assert type(model) == KeyedVectors
         assert isinstance(known_words, Set)
         assert type(average_vector) == np.ndarray
         word_count = sum(
             1 for _ in map(lambda x: np.add(average_vector, model[x],
                                             out=average_vector),
-                           filter(lambda x: x in known_words, words))
+                           filter(lambda x: x in known_words, words.split()))
         )
         return np.divide(average_vector, float(word_count), out=average_vector)
 
@@ -732,8 +722,8 @@ def _make_classifier(conf):
 
 
 class NeuralNetworkClassifier(object):
-    
-    def __init__(self, batch_size, n_steps, n_hidden_units1, n_hidden_units2, 
+
+    def __init__(self, batch_size, n_steps, n_hidden_units1, n_hidden_units2,
                  n_classes):
         self.batch_size = batch_size
         self.n_steps = n_steps
@@ -744,89 +734,89 @@ class NeuralNetworkClassifier(object):
         self.model_dir = str(_PROJECT_ROOT / 'models' / 'nn' / self.model_description)
 
     def set_up_architecture(self, train_data_features, train_sentiments):
-        
+
         # Convert the scarce scipy feature matrices to pandas dataframes
         print(train_data_features.shape)
         train_df = pd.DataFrame(train_data_features.toarray())
-        
+
         # Convert column names from numbers to strings
         train_df.columns = train_df.columns.astype(str)
 
         # Create feature columns which describe how to use the input
         feat_cols = []
-        for key in train_df.keys(): 
+        for key in train_df.keys():
             feat_cols.append(tf.feature_column.numeric_column(key=key))
-            
+
         # Set up classifier with two hidden unit layers
         classifier = tf.estimator.DNNClassifier(
-                                        feature_columns=feat_cols, 
-                                        hidden_units=[self.n_hidden_units1, 
+                                        feature_columns=feat_cols,
+                                        hidden_units=[self.n_hidden_units1,
                                                       self.n_hidden_units2],
                                         n_classes=self.n_classes,
                                         model_dir=self.model_dir)
-        
+
         return train_df, classifier
-    
+
     def check_saves(self):
-        pass        
-    
+        pass
+
     def shape_train_input(self, features, labels, batch_size):
         """An input function for training"""
-        
+
         # Convert the input to a dataset
         dataset = tf.data.Dataset.from_tensor_slices((dict(features), labels))
-    
+
         # Shuffle, repeat, and batch the examples
         dataset = dataset.shuffle(1000).repeat().batch(self.batch_size)
 
         return dataset
 
     def fit(self, train_data_features, train_sentiments):
-        
-        train_df, new_classifier = self.set_up_architecture(train_data_features, 
+
+        train_df, new_classifier = self.set_up_architecture(train_data_features,
                                                    train_sentiments)
-        
+
         self.classifier = new_classifier.train(input_fn=
                                       lambda:self.shape_train_input(train_df,
                                                               train_sentiments,
                                                               self.batch_size),
                                                               steps=self.n_steps)
-        
+
         return self
 
     def shape_pred_input(self, features, batch_size):
         """An input function for evaluation or prediction"""
-        
+
         features=dict(features)
-        
+
         # Convert the inputs to a dataset
         dataset = tf.data.Dataset.from_tensor_slices(features)
-    
+
         # Batch the examples
         assert batch_size is not None, "batch_size must not be None"
         dataset = dataset.batch(self.batch_size)
-        
+
         print(dataset)
-    
+
         return dataset
-    
+
     def predict(self, test_data_features):
-        
+
         # Convert the scarce scipy feature matrices to pandas dataframes
         test_df = pd.DataFrame(test_data_features.toarray())
-        
+
         # Convert column names from numbers to strings
         test_df.columns = test_df.columns.astype(str)
-        
+
         predictions = self.classifier.predict(input_fn=
-                                    lambda:self.shape_pred_input(test_df, 
+                                    lambda:self.shape_pred_input(test_df,
                                                             self.batch_size))
-        
+
         predicted_labels = []
-        
+
         for pred_dict in predictions:
             predicted_labels.append(pred_dict['class_ids'][0])
-            
+
         return predicted_labels
 
 
