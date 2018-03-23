@@ -83,8 +83,8 @@ _DEFAULT_CONFIG = {
         'labeled':   str(_PROJECT_ROOT / 'data' / 'labeledTrainData.tsv'),
         'unlabeled': str(_PROJECT_ROOT / 'data' / 'unlabeledTrainData.tsv'),
         'test':      str(_PROJECT_ROOT / 'data' / 'testData.tsv'),
-        'clean':     #str(_PROJECT_ROOT / 'data' / 'cleanReviews.tsv'),
-                     str(_PROJECT_ROOT / 'data' / 'cleanReviewsSmall.tsv'),
+        'clean':     str(_PROJECT_ROOT / 'data' / 'cleanReviews.tsv'),
+                     #str(_PROJECT_ROOT / 'data' / 'cleanReviewsSmall.tsv'),
     },
     'out': {
         'result':       str(_PROJECT_ROOT / 'results' / 'Prediction.csv'),
