@@ -24,7 +24,7 @@
 # SOFTWARE.
 
 import logging
-import pathos.multiprocessing as mp
+#import pathos.multiprocessing as mp
 import os
 from pathlib import Path
 import re
@@ -119,7 +119,7 @@ _DEFAULT_CONFIG = {
         'data': 'model', 
         'model':    str(_PROJECT_ROOT / 'results'
                                       / '300features_40minwords_10context'),
-        'dictionary': str(_PROJECT_ROOT / 'results' / 'dictionary_pretrained.npy'),
+        'dictionary': str(_PROJECT_ROOT / 'dictionary_pretrained.npy'),
         'retrain':  False,
         # Averaging strategy to use, one of {'average', 'k-means'}
         'strategy': 'k-means',
