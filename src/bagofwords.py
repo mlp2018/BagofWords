@@ -396,7 +396,7 @@ def split_90_10(data: Tuple[Type[np.ndarray], Type[np.ndarray]],
     if _get_sklearn_version() >= (0, 19, 0):
         train_index, test_index = StratifiedShuffleSplit(
             n_splits=1, test_size=alpha,
-            random_state=seed).__iter__().__next__()
+            random_state=seed).split(reviews, labels).__iter__().__next__()
     else:
         train_index, test_index = StratifiedShuffleSplit(
             labels, n_iter=1, test_size=alpha,
