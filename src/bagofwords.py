@@ -39,6 +39,7 @@ import nltk.tokenize
 import numpy as np
 import pandas as pd
 # from scipy.sparse import csr_matrix
+import sklearn
 from sklearn.cluster import KMeans
 from sklearn.ensemble import RandomForestClassifier
 # from sklearn.feature_extraction.text import VectorizerMixin
@@ -46,11 +47,20 @@ from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics import roc_auc_score
 import tensorflow as tf
 
-if sys.version_info >= (3, 6):
+
+def _get_sklearn_version() -> Tuple[int, int, int]:
+    """
+    Returns the version of scikit-learn as a tuple.
+    """
+    return tuple(sklearn.__version__.split('.'))
+
+
+if _get_sklearn_version() >= (0, 19, 0):
     from sklearn.model_selection import StratifiedKFold
+    from sklearn.model_selection import StratifiedShuffleSplit
 else:  # We have an old version of sklearn...
     from sklearn.cross_validation import StratifiedKFold
-from sklearn.model_selection import StratifiedShuffleSplit
+    from sklearn.cross_validation import StratifiedShuffleSplit
 
 
 def _get_current_file_dir() -> Path:
@@ -400,14 +410,22 @@ def split_90_10(data: Tuple[Type[np.ndarray], Type[np.ndarray]],
     Despite the very descriptive name this function does the ``1-alpha`` -
     ``alpha`` split rather than the ``90%`` - ``10%`` one.
 
-    :param data: The data to split.
+    :param data:  The data to split.
     :param alpha: Percentage of data to use for testing.
-    :param seed: Random seed to use for splitting.
+    :param seed:  Random seed to use for splitting.
     :return: ``((reviews to train on, sentiments to train on),
                 (reviews to test on, sentiments to test on))``.
     """
     assert 0 < alpha and alpha < 1
     reviews, labels = data
+
+    def go(train_index, test_index):
+        x_train = reviews[train_index]
+        x_test = reviews[test_index]
+        y_train = labels[train_index]
+        y_test = labels[test_index]
+        
+
     sss = StratifiedShuffleSplit(
         n_splits=1, test_size=alpha, random_state=seed)
     for train_index, test_index in sss.split(reviews, labels):
