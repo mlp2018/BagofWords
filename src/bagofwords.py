@@ -76,10 +76,11 @@ _PROJECT_ROOT = _get_current_file_dir() / '..'
 
 
 # Default configuration options.
+# WARNING: Please, avoid changing it. Use a local `conf.py` in the project's
+# root directory.
 _DEFAULT_CONFIG = {
     'in': {
-        'labeled':   #str(_PROJECT_ROOT / 'data' / 'labeledTrainData.tsv'),
-                     str(_PROJECT_ROOT / 'data' / 'labeledTrainDataSmall.tsv'),
+        'labeled':   str(_PROJECT_ROOT / 'data' / 'labeledTrainData.tsv'),
         'unlabeled': str(_PROJECT_ROOT / 'data' / 'unlabeledTrainData.tsv'),
         'test':      str(_PROJECT_ROOT / 'data' / 'testData.tsv'),
         'clean':     #str(_PROJECT_ROOT / 'data' / 'cleanReviews.tsv'),
@@ -91,55 +92,26 @@ _DEFAULT_CONFIG = {
     },
     'vectorizer': {
         # Type of the vectorizer, one of {'word2vec', 'bagofwords'}
-        'type': 'bagofwords',
+        'type': 'word2vec',
         'args': {},
-        # 'args': {
-        #     'size':      300,
-        #     'min_count': 40,
-        #     'window':    10,
-        #     'sample':    1.E-3,
-        #     'workers':   4,
-        #     'seed':      1,
-        # },
     },
-    # 'vectorizer': {
-    #     'type': 'bagofwords'
-    #     'args': {
-    #         'analyzer': 'word',
-    #         'tokenizer': None,
-    #         'stop_words': None,
-    #         'max_features': 5000
-    #     },
-    # }
     'classifier': {
-        # Type of the classifier to use, one of {'random-forest', 'neural-network'}
-        #'type': 'random-forest',
-        'type': 'neural-network',
+        # Type of the classifier to use, one of {'random-forest'}
+        'type': 'random-forest',
         'args': {
-# =============================================================================
-#             # random-forest arguments
-#             'n_estimators': 100,
-#             # 'max_features': 20000,
-#             'n_jobs':       4,
-# # =============================================================================
-            # neural-network arguments
-            'batch_size': 100,
-            'n_steps': 1000,
-            'n_hidden_units1': 10,
-            'n_hidden_units2': 10,
-            'n_classes': 2,
+            'n_estimators': 100,
+            'n_jobs':       4,
         },
     },
     'run': {
         # Type of the run, one of {'optimization', 'submission'}
-        # NOTE: Currently, only optimization run is implemented.
-        'type':          'submission',
-        'number_splits': 3,
+        'type':             'optimization',
+        'number_splits':    3,
         'remove_stopwords': False,
-        'cache_clean': True,
-        'test_10': True,
-        'random': 42,
-        'alpha': 0.1,
+        'cache_clean':      True,
+        'test_10':          False,
+        'random':           42,
+        'alpha':            0.1,
     },
     'bagofwords': {},
     'word2vec': {
@@ -147,8 +119,9 @@ _DEFAULT_CONFIG = {
                                       / '300features_40minwords_10context'),
         'retrain':  False,
         # Averaging strategy to use, one of {'average', 'k-means'}
-        'strategy': 'k-means'
+        'strategy': 'average'
     },
+    'average': {},
     'k-means': {
         'number_clusters_frac': 0.2,  # NOTE: This argument is required!
         'max_iter':             100,
@@ -529,8 +502,7 @@ class SimpleAverager(object):
         """
         Given a list of words, returns the their average.
 
-        :param words: Words to average.
-        :type words: List[str]
+        :param str words: Words to average.
         :param model: Words representation, i.e. the "word vectors"-part of
                       Word2Vec model.
         :type model: KeyedVectors,
@@ -542,14 +514,15 @@ class SimpleAverager(object):
         :return: The average of ``words``.
         :rtype: np.ndarray
         """
-        assert isinstance(words, List)
+        # print(type(words))
+        assert isinstance(words, str)
         assert type(model) == KeyedVectors
         assert isinstance(known_words, Set)
         assert type(average_vector) == np.ndarray
         word_count = sum(
             1 for _ in map(lambda x: np.add(average_vector, model[x],
                                             out=average_vector),
-                           filter(lambda x: x in known_words, words))
+                           filter(lambda x: x in known_words, words.split()))
         )
         return np.divide(average_vector, float(word_count), out=average_vector)
 
