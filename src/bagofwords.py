@@ -135,8 +135,10 @@ _DEFAULT_CONFIG = {
 # NOTE: See _DEFAULT_CONFIG for the format of the configuratio options.
 try:
     from conf import conf
+    print("Imported local config file.")
 except ImportError:
     conf = _DEFAULT_CONFIG
+    print("Used the default config.")
 
 
 # TODO: Fix this.
