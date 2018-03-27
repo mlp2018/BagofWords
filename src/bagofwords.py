@@ -732,44 +732,39 @@ def _make_classifier(conf):
     return _fn[conf['classifier']['type']](**conf['classifier']['args'])
 
 
-class NeuralNetworkClassifier(object):
 
-    def __init__(self, batch_size, n_steps, n_hidden_units1, n_hidden_units2,
-                 n_classes):
+class SimpleFeedForwardNN(object):
+    
+    def __init__(self, batch_size=None, n_steps=None, n_hidden_units1=None, 
+                 n_hidden_units2=None, n_classes=None, train_data_features=None):
         self.batch_size = batch_size
         self.n_steps = n_steps
-        self.n_hidden_units1 = n_hidden_units1
-        self.n_hidden_units2 = n_hidden_units2
-        self.n_classes = n_classes
-        self.model_description = str(n_hidden_units1) + '_' + str(n_hidden_units2)
-        self.model_dir = str(_PROJECT_ROOT / 'models' / 'nn' / self.model_description)
-
-    def set_up_architecture(self, train_data_features, train_sentiments):
-
+        
+        model_description = str(n_hidden_units1) + '_' + str(n_hidden_units2)
+        model_dir = str(_PROJECT_ROOT / 'models' / 'nn' / model_description)
+        
         # Convert the scarce scipy feature matrices to pandas dataframes
-        print(train_data_features.shape)
-        train_df = pd.DataFrame(train_data_features)
-
+        self.train_df = pd.DataFrame(train_data_features)
+        
         # Convert column names from numbers to strings
-        train_df.columns = train_df.columns.astype(str)
+        self.train_df.columns = self.train_df.columns.astype(str)
 
         # Create feature columns which describe how to use the input
         feat_cols = []
-        for key in train_df.keys():
+        for key in self.train_df.keys():
             feat_cols.append(tf.feature_column.numeric_column(key=key))
-
+    
         # Set up classifier with two hidden unit layers
-        classifier = tf.estimator.DNNClassifier(
+        self.classifier = tf.estimator.DNNClassifier(
                                         feature_columns=feat_cols,
-                                        hidden_units=[self.n_hidden_units1,
-                                                      self.n_hidden_units2],
-                                        n_classes=self.n_classes,
-                                        model_dir=self.model_dir)
+                                        hidden_units=[n_hidden_units1,
+                                                      n_hidden_units2],
+                                        n_classes=n_classes,
+                                        model_dir=model_dir)
+            
+    
 
-        return train_df, classifier
-
-    def check_saves(self):
-        pass
+class NeuralNetworkClassifier(object):
 
     def shape_train_input(self, features, labels, batch_size):
         """An input function for training"""
