@@ -101,6 +101,14 @@ _DEFAULT_CONFIG = {
         'args': {
             'n_estimators': 100,
             'n_jobs':       4,
+        # For 'neural-network'
+        #'type': 'neural-network',
+        #'args': {
+        #    'batch_size': 1000,
+        #    'n_steps': 100,
+        #    'n_hidden_units1':10,
+        #    'n_hidden_units2':10,
+        #    'n_classes':2,
         },
     },
     'run': {
@@ -739,7 +747,7 @@ class NeuralNetworkClassifier(object):
 
         # Convert the scarce scipy feature matrices to pandas dataframes
         print(train_data_features.shape)
-        train_df = pd.DataFrame(train_data_features.toarray())
+        train_df = pd.DataFrame(train_data_features)
 
         # Convert column names from numbers to strings
         train_df.columns = train_df.columns.astype(str)
@@ -805,7 +813,7 @@ class NeuralNetworkClassifier(object):
     def predict(self, test_data_features):
 
         # Convert the scarce scipy feature matrices to pandas dataframes
-        test_df = pd.DataFrame(test_data_features.toarray())
+        test_df = pd.DataFrame(test_data_features)
 
         # Convert column names from numbers to strings
         test_df.columns = test_df.columns.astype(str)
