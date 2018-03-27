@@ -735,8 +735,10 @@ def _make_classifier(conf):
 
 class SimpleFeedForwardNN(object):
     
-    def __init__(self, batch_size=None, n_steps=None, n_hidden_units1=None, 
-                 n_hidden_units2=None, n_classes=None, train_data_features=None):
+    def __init__(self, dimensions=None,batch_size=None, n_steps=None, 
+                 n_hidden_units1=None, n_hidden_units2=None, n_classes=None, 
+                 train_data_features=None):
+        
         self.batch_size = batch_size
         self.n_steps = n_steps
         
@@ -762,68 +764,65 @@ class SimpleFeedForwardNN(object):
                                         n_classes=n_classes,
                                         model_dir=model_dir)
             
-    
+def shape_train_input(classifier, features, labels, batch_size):
+    """An input function for training"""
+
+    # Convert the input to a dataset
+    dataset = tf.data.Dataset.from_tensor_slices((dict(features), labels))
+
+    # Shuffle, repeat, and batch the examples
+    dataset = dataset.shuffle(1000).repeat().batch(classifier.batch_size)
+
+    return dataset
+
+def _fit_sff_network(classifier, train_data_features, train_sentiments):
+
+    classifier.classifier = classifier.classifier.train(input_fn=
+                                  lambda:classifier.shape_train_input(classifier.train_df,
+                                                          train_sentiments,
+                                                          classifier.batch_size),
+                                                          steps=classifier.n_steps)
+
+    return classifier
+
+def shape_pred_input(classifier, features, batch_size):
+    """An input function for evaluation or prediction"""
+
+    features=dict(features)
+
+    # Convert the inputs to a dataset
+    dataset = tf.data.Dataset.from_tensor_slices(features)
+
+    # Batch the examples
+    assert batch_size is not None, "batch_size must not be None"
+    dataset = dataset.batch(classifier.batch_size)
+
+    print(dataset)
+
+    return dataset
+
+def _predict_sff(classifier, test_data_features):
+
+    # Convert the scarce scipy feature matrices to pandas dataframes
+    test_df = pd.DataFrame(test_data_features)
+
+    # Convert column names from numbers to strings
+    test_df.columns = test_df.columns.astype(str)
+
+    predictions = classifier.classifier.predict(input_fn=
+                                lambda:classifier.shape_pred_input(test_df,
+                                                        classifier.batch_size))
+
+    predicted_labels = []
+
+    for pred_dict in predictions:
+        predicted_labels.append(pred_dict['class_ids'][0])
+
+    return predicted_labels   
 
 class NeuralNetworkClassifier(object):
 
-    def shape_train_input(self, features, labels, batch_size):
-        """An input function for training"""
-
-        # Convert the input to a dataset
-        dataset = tf.data.Dataset.from_tensor_slices((dict(features), labels))
-
-        # Shuffle, repeat, and batch the examples
-        dataset = dataset.shuffle(1000).repeat().batch(self.batch_size)
-
-        return dataset
-
-    def fit(self, train_data_features, train_sentiments):
-
-        train_df, new_classifier = self.set_up_architecture(train_data_features,
-                                                   train_sentiments)
-
-        self.classifier = new_classifier.train(input_fn=
-                                      lambda:self.shape_train_input(train_df,
-                                                              train_sentiments,
-                                                              self.batch_size),
-                                                              steps=self.n_steps)
-
-        return self
-
-    def shape_pred_input(self, features, batch_size):
-        """An input function for evaluation or prediction"""
-
-        features=dict(features)
-
-        # Convert the inputs to a dataset
-        dataset = tf.data.Dataset.from_tensor_slices(features)
-
-        # Batch the examples
-        assert batch_size is not None, "batch_size must not be None"
-        dataset = dataset.batch(self.batch_size)
-
-        print(dataset)
-
-        return dataset
-
-    def predict(self, test_data_features):
-
-        # Convert the scarce scipy feature matrices to pandas dataframes
-        test_df = pd.DataFrame(test_data_features)
-
-        # Convert column names from numbers to strings
-        test_df.columns = test_df.columns.astype(str)
-
-        predictions = self.classifier.predict(input_fn=
-                                    lambda:self.shape_pred_input(test_df,
-                                                            self.batch_size))
-
-        predicted_labels = []
-
-        for pred_dict in predictions:
-            predicted_labels.append(pred_dict['class_ids'][0])
-
-        return predicted_labels
+ 
 
 
 def main():
