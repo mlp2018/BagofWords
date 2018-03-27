@@ -29,7 +29,7 @@ from pathlib import Path
 import re
 import sys
 import time
-from typing import Type, Any, Iterable, Tuple, List, Set, Dict, Callable
+from typing import Type, Any, Iterable, Optional, Tuple, List, Set, Dict, Callable
 import warnings
 
 from bs4 import BeautifulSoup
@@ -52,7 +52,8 @@ def _get_sklearn_version() -> Tuple[int, int, int]:
     """
     Returns the version of scikit-learn as a tuple.
     """
-    return tuple(map(int, sklearn.__version__.split('.')))
+    (a, b, c) = sklearn.__version__.split('.')
+    return int(a), int(b), int(c)
 
 
 if _get_sklearn_version() >= (0, 19, 0):
@@ -79,49 +80,61 @@ _PROJECT_ROOT = _get_current_file_dir() / '..'
 # WARNING: Please, avoid changing it. Use a local `conf.py` in the project's
 # root directory.
 _DEFAULT_CONFIG = {
+    # Options that specify where to read the data from.
     'in': {
         'labeled':   str(_PROJECT_ROOT / 'data' / 'labeledTrainData.tsv'),
         'unlabeled': str(_PROJECT_ROOT / 'data' / 'unlabeledTrainData.tsv'),
         'test':      str(_PROJECT_ROOT / 'data' / 'testData.tsv'),
         'clean':     str(_PROJECT_ROOT / 'data' / 'cleanReviews.tsv'),
-                     #str(_PROJECT_ROOT / 'data' / 'cleanReviewsSmall.tsv'),
     },
+    # Options that specify where to write the results to.
     'out': {
         'result':       str(_PROJECT_ROOT / 'results' / 'Prediction.csv'),
         'wrong_result': str(_PROJECT_ROOT / 'results' / 'FalsePrediction.csv'),
     },
-    'vectorizer': {
-        # Type of the vectorizer, one of {'word2vec', 'bagofwords'}
-        'type': 'word2vec',
-        'args': {},
-    },
-    'classifier': {
-        # Type of the classifier to use, one of {'random-forest'}
-        'type': 'random-forest',
-        'args': {
-            'n_estimators': 100,
-            'n_jobs':       4,
-        },
-    },
+    # High-level algorithm specific options.
     'run': {
         # Type of the run, one of {'optimization', 'submission'}
         'type':             'optimization',
+        # How many splits to use in the StratifiedKFold
         'number_splits':    3,
+        # When preprocessing the reviews, should we remove the stopwords?
         'remove_stopwords': False,
+        # Should we cache the preprocessed reviews?
         'cache_clean':      True,
+        # After the running the StratifiedKFold on the 90%, should we test the
+        # result on the remaining 10?
         'test_10':          False,
+        # Random seed used for the 90-10 split.
         'random':           42,
+        # How many percent of the data should be left out for testing? I.e.
+        # what is "10" in the 90-10 split.
         'alpha':            0.1,
     },
+    # Type of the vectorizer, one of {'word2vec', 'bagofwords'}
+    'vectorizer': 'word2vec',
+    # Type of the classifier to use, one of {'random-forest'}
+    'classifier': 'random-forest',
+    # Options specific to the bagofwords vectorizer.
     'bagofwords': {},
+    # Options specific to the word2vec vectorizer.
     'word2vec': {
+        # File name where to save/read the model to/from.
         'model':    str(_PROJECT_ROOT / 'results'
                                       / '300features_40minwords_10context'),
+        # Retrain the model every time?
         'retrain':  False,
         # Averaging strategy to use, one of {'average', 'k-means'}
         'strategy': 'average'
     },
+    # Options specific to the random forest classifier.
+    'random-forest': {
+        'n_estimators': 100,
+        'n_jobs':       4,
+    },
+    # Options specific to the "average" averaging strategy.
     'average': {},
+    # Options specific to the "k-means" averaging strategy.
     'k-means': {
         'number_clusters_frac': 0.2,  # NOTE: This argument is required!
         'max_iter':             100,
@@ -153,8 +166,8 @@ def _read_data_from(path: str) -> pd.DataFrame:
 
 class ReviewPreprocessor(object):
     """
-    ReviewPreprocessor is an utility class for processing raw HTML text into
-    segments for further learning.
+    :py:class:`ReviewPreprocessor` is an utility class for processing raw HTML
+    text into segments for further learning.
     """
 
     _stopwords = set(nltk.corpus.stopwords.words('english'))
@@ -180,6 +193,7 @@ class ReviewPreprocessor(object):
         if remove_stopwords:
             words = [w for w in words if w not in
                      ReviewPreprocessor._stopwords]
+        assert type(words) == list
         return words
 
     @staticmethod
@@ -191,10 +205,10 @@ class ReviewPreprocessor(object):
         review is then split into lowercase words and the resulting list is
         returned.
 
-        :param str review:            The review as raw HTML
-        :param bool remove_stopwords: Whether to remove stopwords.
+        :param str review:            The review as raw HTML.
+        :param bool remove_stopwords: Whether to remove the stopwords.
         :return:                      Review split into words.
-        :rtype:                       ``List[str]``
+        :rtype:                       List[str]
         """
         assert type(review) == str
         assert type(remove_stopwords) == bool
@@ -207,19 +221,16 @@ class ReviewPreprocessor(object):
     def review2sentences(review: str, remove_stopwords: bool = False) \
             -> Iterable[List[str]]:
         """
-        Given a review, splits the review into sentences, where each sentence
+        Given a review, splits it into sentences where each sentence
         is a list of words.
 
         :param str review:            The review as raw HTML.
-        :param bool remove_stopwords: Whether to remove stopwords.
+        :param bool remove_stopwords: Whether to remove the stopwords.
         :return:                      Review split into sentences.
-        :rtype:                       ``Iterable[List[str]]``.
+        :rtype:                       Iterable[List[str]].
         """
         assert type(review) == str
         assert type(remove_stopwords) == bool
-
-        # TODO: First preprocess using BeautifulSoup!
-
         raw_sentences = ReviewPreprocessor._tokenizer.tokenize(
             ReviewPreprocessor._striphtml(review))
         return map(
@@ -231,35 +242,36 @@ class ReviewPreprocessor(object):
 # https://github.com/mlp2018/BagofWords/issues/7.
 def clean_up_reviews(reviews: Iterable[str],
                      remove_stopwords: bool = True,
-                     compute_only: bool = False) -> Type[np.ndarray]:
+                     clean_file: Optional[str] = None) -> np.ndarray:
     """
-    Given an list of reviews, either loads pre-computed reviews
-    or applies
-    :py:func:`ReviewPreprocessor.review2wordlist` to each review and
-    concatenates it back into a single string.
-    and saves to file 'cleaned_reviews'
+    Given an list of reviews, either loads pre-computed clean reviews from
+    ``clean_file`` or applies :py:func:`ReviewPreprocessor.review2wordlist` to
+    each review and converts it into an :py:class:`numpy.ndarray`. Also, if
+    ``clean_file`` is not ``None`` clean reviews are saved to it.
 
     :param reviews:               Reviews to clean up.
     :type reviews:                Iterable[str]
     :param bool remove_stopwords: Whether to remove the stopwords.
-    :param bool compute_only:     Whether to save result and load from file
-                                  if exist.
+    :param clean_file:            File where clean reviews are stored.
+    :type clean_file:             Optional[str]
     :return:                      Iterable of clean reviews.
     :rtype:                       Iterable[str]
     """
     assert isinstance(reviews, Iterable)
-    assert type(remove_stopwords) == bool
-    assert type(compute_only) == bool
-    clean_file = conf['in']['clean']
-    if not compute_only and Path(clean_file).exists():
+    assert type(remove_stopwords) is bool
+    assert clean_file is None or type(clean_file) is str
+    if clean_file is not None and Path(clean_file).exists():
         return _read_data_from(clean_file)['review'].values
     logging.info('Cleaning and parsing the reviews...')
     review = np.array(list(map(
         lambda x: ' '.join(
             ReviewPreprocessor.review2wordlist(x, remove_stopwords)),
-        reviews)))
-    if not compute_only:
-        logging.info('Saving clean data to file "cleanReviews.tsv" ...')
+        reviews)), object)
+    # This assert is important to ensure we're doing things in a
+    # memory-efficient way!
+    assert review.dtype == np.object
+    if clean_file is not None:
+        logging.info('Saving clean data to file {!r}...'.format(repr(clean_file)))
         pd.DataFrame(data={"review": review}) \
             .to_csv(clean_file, index=False, quoting=3)
     return review
@@ -280,7 +292,7 @@ def reviews2sentences(reviews: Iterable[str],
     """
     logging.info('Splittings reviews into sentences...')
     assert isinstance(reviews, Iterable)
-    assert type(remove_stopwords) == bool
+    assert type(remove_stopwords) is bool
 
     class R2SIter:
         def __init__(self, xs, remove):
@@ -487,24 +499,24 @@ def optimization_run(reviews: Type[np.ndarray],
 
 class SimpleAverager(object):
     """
-    This class implements the 'average' strategy for reducing a list of
-    word2vec vectors into a single one.
+    This class implements the simplest strategy for reducing a list of
+    word2vec vectors into a single one -- averaging.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         pass
 
     @staticmethod
     def _make_avg_feature_vector(
-            words: List[str], model: Type[KeyedVectors], known_words: Set[str],
-            average_vector: Type[np.ndarray]) -> Type[np.ndarray]:
+            words: str, model: Dict[str, np.ndarray], known_words: Set[str],
+            average_vector: np.ndarray) -> Type[np.ndarray]:
         """
         Given a list of words, returns the their average.
 
         :param str words: Words to average.
-        :param model: Words representation, i.e. the "word vectors"-part of
-                      Word2Vec model.
-        :type model: KeyedVectors,
+        :param model:     Words representation, i.e. the "word vectors"-part of
+                          Word2Vec model.
+        :type model:      KeyedVectors,
         :param known_words: Set of all words that the model knows.
         :type known_words: Set[str]
         :param average_vector: Pre-allocated zero-initialised vector. It will
@@ -828,8 +840,9 @@ def main():
         ids = np.array(train_data['id'], dtype=np.unicode_)
         reviews = clean_up_reviews(train_data['review'],
                                    conf['run']['remove_stopwords'],
-                                   not conf['run']['cache_clean'])
+                                   conf['in']['clean'])
         sentiments = np.array(train_data['sentiment'], dtype=np.bool_)
+        sys.exit(0)
 
         def mk_vectorizer():
             return _make_vectorizer(conf)
