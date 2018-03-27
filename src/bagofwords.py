@@ -42,6 +42,8 @@ import pandas as pd
 import sklearn
 from sklearn.cluster import KMeans
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.naive_bayes import MultinomialNB, BernoulliNB
 # from sklearn.feature_extraction.text import VectorizerMixin
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics import roc_auc_score
@@ -63,6 +65,8 @@ else:  # We have an old version of sklearn...
     from sklearn.cross_validation import StratifiedKFold
     from sklearn.cross_validation import StratifiedShuffleSplit
 
+import gensim
+
 
 def _get_current_file_dir() -> Path:
     """Returns the directory of the script."""
@@ -74,7 +78,6 @@ def _get_current_file_dir() -> Path:
 
 # Project root directory, i.e. the github repo directory.
 _PROJECT_ROOT = _get_current_file_dir() / '..'
-
 
 # Default configuration options.
 # WARNING: Please, avoid changing it. Use a local `conf.py` in the project's
@@ -113,24 +116,42 @@ _DEFAULT_CONFIG = {
     },
     # Type of the vectorizer, one of {'word2vec', 'bagofwords'}
     'vectorizer': 'word2vec',
-    # Type of the classifier to use, one of {'random-forest'}
+    # Type of the classifier to use, one of
+    # {'random-forest', 'logistic-regression'}
     'classifier': 'random-forest',
     # Options specific to the bagofwords vectorizer.
     'bagofwords': {},
     # Options specific to the word2vec vectorizer.
     'word2vec': {
+        # Data you want to use, one of {'model', 'dictionary'}
+        'data':       'dictionary',
         # File name where to save/read the model to/from.
-        'model':    str(_PROJECT_ROOT / 'results'
-                                      / '300features_40minwords_10context'),
+        'model':      str(_PROJECT_ROOT / 'results'
+                                        / '300features_40minwords_10context'),
+        'dictionary': str(_PROJECT_ROOT / 'dictionary_pretrained.npy'),
         # Retrain the model every time?
-        'retrain':  False,
+        'retrain':    False,
         # Averaging strategy to use, one of {'average', 'k-means'}
-        'strategy': 'average'
+        'strategy':   'average'
     },
     # Options specific to the random forest classifier.
     'random-forest': {
         'n_estimators': 100,
         'n_jobs':       4,
+    },
+    # Options specific to the logistic regression classifier.
+    'logistic-regression': {
+        # TODO: I might've messed this part up. Someone with a good
+        # understanding of the required arguments, please check!
+        #                                                Tom
+        'penalty':           'l2',
+        'dual':              True,
+        'tol':               0.0001,
+        'C':                 1,
+        'fit_intercept':     True,
+        'intercept_scaling': 1.0,
+        'class_weight':      None,
+        'random_state':      None,
     },
     # Options specific to the "average" averaging strategy.
     'average': {},
@@ -527,8 +548,8 @@ class SimpleAverager(object):
         """
         # print(type(words))
         assert isinstance(words, str)
-        assert type(model) == KeyedVectors
-        assert isinstance(known_words, Set)
+        assert type(model) == dict
+        assert isinstance(known_words, Iterable)
         assert type(average_vector) == np.ndarray
         word_count = sum(
             1 for _ in map(lambda x: np.add(average_vector, model[x],
@@ -537,8 +558,9 @@ class SimpleAverager(object):
         )
         return np.divide(average_vector, float(word_count), out=average_vector)
 
+
     def transform(self, reviews: Type[np.ndarray],
-                  model: Type[KeyedVectors]) -> Type[np.ndarray]:
+                  model: Type[dict]) -> Type[np.ndarray]:
         """
         Given a list of reviews and a word2vec model, returns an array of
         average feature vectors.
@@ -546,17 +568,16 @@ class SimpleAverager(object):
         :param reviews: Reviews to transform.
         :type reviews: 'numpy.ndarray' of ``list`` of shape ``(#reviews,)``
         :param model: Word2Vec model.
-        :type model: KeyedVectors
+        :type model: dict
         :return: Array of average feature vectors.
         :rtype: 'numpy.ndarray' of shape ``(#reviews, #features)``
         """
         assert type(reviews) == np.ndarray
-        assert type(model) == KeyedVectors
-        (_, number_features) = model.syn0.shape
+        assert type(model) == dict
+        #don't know how to do that properly
+        number_features = len(model['dog'])
         (number_reviews,) = reviews.shape
-        # NOTE: Will this work OK for large models?
-        known_words = set(model.index2word)
-
+        known_words = model.keys()
         feature_vectors = np.zeros(
             (number_reviews, number_features), dtype='float32')
         for (i, (review, vector)) in enumerate(zip(reviews, feature_vectors)):
@@ -567,7 +588,7 @@ class SimpleAverager(object):
                 review, model, known_words, vector)
         return feature_vectors
 
-    def fit_transform(self, reviews: np.ndarray, model: KeyedVectors):
+    def fit_transform(self, reviews: np.ndarray, model: dict):
         """
         :py:class:`SimpleAverager` has no state, and :py:func:`fit_transform`
         thus simply calls :py:func:`transform`.
@@ -616,7 +637,7 @@ class KMeansAverager(object):
     # https://github.com/mlp2018/BagofWords/issues/16. Is this the right
     # way to go?
     def transform(self, reviews: Type[np.ndarray],
-                  model: KeyedVectors) -> Type[np.ndarray]:
+                  model: dict) -> Type[np.ndarray]:
         """
         Given a list of reviews, transforms them all to the bag of centroids
         representation.
@@ -634,7 +655,7 @@ class KMeansAverager(object):
         return bags
 
     def fit_transform(self, reviews: Type[np.ndarray],
-                      model: Type[KeyedVectors]) -> Type[np.ndarray]:
+                      model: Type[dict]) -> Type[np.ndarray]:
         """
         Given a list of reviews, runs k-means clustering on them and returns
         them in the bag of centroids representation.
@@ -643,9 +664,11 @@ class KMeansAverager(object):
         num_clusters = int(self.number_clusters_frac * num_reviews)
         self.kmeans = KMeans(n_clusters=num_clusters, **self.kmeans_args)
 
+        vectors = np.array(list(model.values()))
+
         logging.info('Running k-means + labeling...')
         start = time.time()
-        cluster_indices = self.kmeans.fit_predict(model.syn0)
+        cluster_indices = self.kmeans.fit_predict(vectors)
         end = time.time()
         logging.info('Done with k-means clustering in {:.0f} seconds!'
                      .format(end - start))
@@ -653,7 +676,7 @@ class KMeansAverager(object):
         # NOTE: I'm afraid this will go wrong for big word2vec models such as
         # the pre-trained Google's one.
         logging.info('Creating word→index map...')
-        self.word2centroid = dict(zip(model.index2word, cluster_indices))
+        self.word2centroid = dict(zip(model.keys(), cluster_indices))
 
         return self.transform(reviews, model)
 
@@ -675,34 +698,55 @@ class Word2VecVectorizer(object):
                  train_data: Iterable[str] = None,
                  model_args={}, averager_args={}):
         assert averager in {'average', 'k-means'}
-        self.model = None
         self.averager = None
+        self.dictionary = None
+        self.word2centroid = None
 
-        if train_data is not None:
-            logging.info('Training Word2Vec model...')
-            start = time.time()
-            self.model = Word2Vec(reviews2sentences(train_data), **model_args)
-            stop = time.time()
-            logging.info('Done training in {:.0f} seconds!'
-                         .format(stop - start))
-            if model_file is not None:
-                logging.info('Saving Word2Vec model to {!r}...'
-                             .format(model_file))
-                self.model.save(model_file)
-        else:
-            # TODO: We do not really need the whole Word2Vec model,
-            # KeyedVectors should suffice.
-            self.model = Word2Vec.load(model_file, **model_args)
+        if conf['word2vec']['data'] == 'model':
+            self.model = None
 
-        self.model = self.model.wv
+            if train_data is not None:
+                logging.info('Training Word2Vec model...')
+                start = time.time()
+                self.model = Word2Vec(reviews2sentences(train_data), **model_args)
+                stop = time.time()
+                logging.info('Done training in {:.0f} seconds!'
+                             .format(stop - start))
+                if model_file is not None:
+                    logging.info('Saving Word2Vec model to {!r}...'
+                                 .format(model_file))
+                    self.model.save(model_file)
+            else:
+                # TODO: We do not really need the whole Word2Vec model,
+                # KeyedVectors should suffice.
+                self.model = Word2Vec.load(model_file, **model_args)
+
+            self.model = self.model.wv
+            self.dictionary = self.keyedVectors_to_dict()
+
+        if conf['word2vec']['data'] == 'dictionary':
+            self.dictionary = np.load(conf['word2vec']['dictionary']).item()
+
         self.averager = \
             Word2VecVectorizer._make_averager_fn[averager](**averager_args)
 
+
     def fit_transform(self, reviews):
-        return self.averager.fit_transform(reviews, self.model)
+        return self.averager.fit_transform(reviews, self.dictionary)
 
     def transform(self, reviews):
-        return self.averager.transform(reviews, self.model)
+        return self.averager.transform(reviews, self.dictionary)
+
+    def keyedVectors_to_dict(self):
+        """
+        Create a dictionary from KeyedVectors
+        """
+        dictionary = {}
+
+        for key in self.model.index2word:
+            dictionary[key] = self.model[key]
+
+        return dictionary
 
 
 def _make_vectorizer(conf):
@@ -727,6 +771,9 @@ def _make_vectorizer(conf):
 # NOTE: @Andre, this is the place to add other classifiers.
 def _make_classifier(conf):
     _fn = {
+        'logistic-regression':LogisticRegression,
+        'naive-bayes-bagofwords':MultinomialNB,
+        'naive-bayes-word2vec':BernoulliNB,
         'random-forest': RandomForestClassifier,
         'neural-network': NeuralNetworkClassifier
     }
@@ -831,6 +878,34 @@ class NeuralNetworkClassifier(object):
 
         return predicted_labels
 
+
+def createDictionaryPretrained(reviews):
+    unique_words = set_of_words(reviews)
+
+    model = gensim.models.KeyedVectors.load_word2vec_format('./GoogleNews-vectors-negative300.bin', binary=True)
+
+    dictionnary_words = {}
+    for word in unique_words:
+        if word in model:
+            dictionnary_words[word] = model[word]
+
+    np.save('dictionary_pretrained_16490.npy', dictionnary_words)
+    #read_dictionary = np.load('dictionary_pretrained.npy').item()
+
+def set_of_words(reviews):
+    '''
+    create the set of words
+    :param reviews:
+
+    '''
+    split_reviews = []
+    for review in reviews:
+        split_reviews.append(review.split())
+
+    flat_word_list = [item for sublist in split_reviews for item in sublist]
+    unique_words = set(flat_word_list)
+
+    return unique_words
 
 def main():
     logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s',
