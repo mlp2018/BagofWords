@@ -42,7 +42,7 @@ import pandas as pd
 from sklearn.cluster import KMeans
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.naive_bayes import MultinomialNB
+from sklearn.naive_bayes import MultinomialNB, BernoulliNB 
 # from sklearn.feature_extraction.text import VectorizerMixin
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics import roc_auc_score
@@ -87,13 +87,15 @@ _DEFAULT_CONFIG = {
         'args': {},
     },
     'classifier': {
-    	# Type of the classifier to use, one of {'random-forest', 'logistic-regression', 'naive-bayes'}
+    	# Type of the classifier to use, one of {'random-forest', 'logistic-regression', 'naive-bayes_bagofword', 'naive-bayes_word2vec'}
         # NOTE: Currently, 'random-forest' is the only working option.
 	# for 'naive-bayes', activate alpha arg. 
         'type': 'logistic-regression',
         'args': {
-        #For Naive-bayes
+        #For Naive-bayes-bagofword
             #'alpha': 0.1,  
+         #For Naive-bayes-word2vec
+            #'alpha': 1.0,    
 	#For logistic regression    
 	    'penalty':'l2', 
 	    'dual':True,    
@@ -740,7 +742,8 @@ def _make_vectorizer(conf):
 def _make_classifier(conf):
     _fn = {
         'logistic-regression':LogisticRegression,
-	'naive-bayes':MultinomialNB,
+        'naive-bayes-bagofwords':MultinomialNB,
+        'naive-bayes-word2vec':BernoulliNB,
         'random-forest': RandomForestClassifier,
     }
     return _fn[conf['classifier']['type']](**conf['classifier']['args'])
