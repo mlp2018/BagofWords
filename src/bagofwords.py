@@ -121,7 +121,7 @@ _DEFAULT_CONFIG = {
     'bagofwords': {},
     'word2vec': {
         # data you want to use, one of {'model', 'dictionary'}
-        'data': 'model', 
+        'data': 'dictionary', 
         'model':    str(_PROJECT_ROOT / 'results'
                                       / '300features_40minwords_10context'),
         'dictionary': str(_PROJECT_ROOT / 'dictionary_pretrained.npy'),
