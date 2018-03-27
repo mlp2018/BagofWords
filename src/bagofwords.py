@@ -666,40 +666,44 @@ class Word2VecVectorizer(object):
                  train_data: Iterable[str] = None,
                  model_args={}, averager_args={}):
         assert averager in {'average', 'k-means'}
-        self.model = None
         self.averager = None
         self.dictionary = None
-        self.model_dictionary = None
         self.word2centroid = None
         
-        if train_data is not None:
-            logging.info('Training Word2Vec model...')
-            start = time.time()
-            self.model = Word2Vec(reviews2sentences(train_data), **model_args)
-            stop = time.time()
-            logging.info('Done training in {:.0f} seconds!'
-                         .format(stop - start))
-            if model_file is not None:
-                logging.info('Saving Word2Vec model to {!r}...'
-                             .format(model_file))
-                self.model.save(model_file)
-        else:
-            # TODO: We do not really need the whole Word2Vec model,
-            # KeyedVectors should suffice.
-            self.model = Word2Vec.load(model_file, **model_args)
+        if conf['word2vec']['data'] == 'model':
+            self.model = None     
+            
+            if train_data is not None:
+                logging.info('Training Word2Vec model...')
+                start = time.time()
+                self.model = Word2Vec(reviews2sentences(train_data), **model_args)
+                stop = time.time()
+                logging.info('Done training in {:.0f} seconds!'
+                             .format(stop - start))
+                if model_file is not None:
+                    logging.info('Saving Word2Vec model to {!r}...'
+                                 .format(model_file))
+                    self.model.save(model_file)
+            else:
+                # TODO: We do not really need the whole Word2Vec model,
+                # KeyedVectors should suffice.
+                self.model = Word2Vec.load(model_file, **model_args)
         
-        self.model = self.model.wv
-        self.model_dictionary = self.keyedVectors_to_dict()
-        self.dictionary = np.load(conf['word2vec']['dictionary']).item()       
+            self.model = self.model.wv
+            self.dictionary = self.keyedVectors_to_dict()
+        
+        if conf['word2vec']['data'] == 'dictionary':
+            self.dictionary = np.load(conf['word2vec']['dictionary']).item()   
+            
         self.averager = \
             Word2VecVectorizer._make_averager_fn[averager](**averager_args)
         
 
     def fit_transform(self, reviews):
-        return self.averager.fit_transform(reviews, self.model_dictionary)
+        return self.averager.fit_transform(reviews, self.dictionary)
 
     def transform(self, reviews):
-        return self.averager.transform(reviews, self.model_dictionary)
+        return self.averager.transform(reviews, self.dictionary)
     
     def keyedVectors_to_dict(self):
         """
