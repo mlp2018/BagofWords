@@ -84,7 +84,6 @@ _DEFAULT_CONFIG = {
         'unlabeled': str(_PROJECT_ROOT / 'data' / 'unlabeledTrainData.tsv'),
         'test':      str(_PROJECT_ROOT / 'data' / 'testData.tsv'),
         'clean':     str(_PROJECT_ROOT / 'data' / 'cleanReviews.tsv'),
-                     #str(_PROJECT_ROOT / 'data' / 'cleanReviewsSmall.tsv'),
     },
     'out': {
         'result':       str(_PROJECT_ROOT / 'results' / 'Prediction.csv'),
@@ -123,8 +122,10 @@ _DEFAULT_CONFIG = {
     },
     'bagofwords': {},
     'word2vec': {
+        'data': 'dictionary'
         'model':    str(_PROJECT_ROOT / 'results'
                                       / '300features_40minwords_10context'),
+        'dictionary': str(_PROJECT_ROOT / 'dictionary_pretrained.npy'),
         'retrain':  False,
         # Averaging strategy to use, one of {'average', 'k-means'}
         'strategy': 'average'
