@@ -29,7 +29,8 @@ from pathlib import Path
 import re
 import sys
 import time
-from typing import Type, Any, Iterable, Optional, Tuple, List, Set, Dict, Callable
+from typing import Type, Any, Iterable, Optional, \
+                   Tuple, List, Dict, Callable
 import warnings
 
 from bs4 import BeautifulSoup
@@ -48,6 +49,8 @@ from sklearn.naive_bayes import MultinomialNB, BernoulliNB
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics import roc_auc_score
 import tensorflow as tf
+
+import cProfile
 
 
 def _get_sklearn_version() -> Tuple[int, int, int]:
@@ -118,17 +121,18 @@ _DEFAULT_CONFIG = {
     'vectorizer': 'word2vec',
     # Type of the classifier to use, one of
     # {'random-forest', 'logistic-regression'}
-    'classifier': 'random-forest',
+    'classifier': 'logistic-regression',
     # Options specific to the bagofwords vectorizer.
     'bagofwords': {},
     # Options specific to the word2vec vectorizer.
     'word2vec': {
-        # Data you want to use, one of {'model', 'dictionary'}
-        'data':       'dictionary',
-        # File name where to save/read the model to/from.
-        'model':      str(_PROJECT_ROOT / 'results'
-                                        / '300features_40minwords_10context'),
-        'dictionary': str(_PROJECT_ROOT / 'dictionary_pretrained.npy'),
+        # File name where to save/read the model to/from. Dictionary file is
+        # computes from it as
+        # dictionary_file = model_file + '.dict.npy'
+        'model':      str(_PROJECT_ROOT / 'data'
+                          / 'GoogleNews-vectors-negative300.bin'),
+        # 'model':      str(_PROJECT_ROOT / 'results'
+        #                   / '300features_40minwords_10context'),
         # Retrain the model every time?
         'retrain':    False,
         # Averaging strategy to use, one of {'average', 'k-means'}
@@ -158,8 +162,8 @@ _DEFAULT_CONFIG = {
     # Options specific to the "k-means" averaging strategy.
     'k-means': {
         'number_clusters_frac': 0.2,  # NOTE: This argument is required!
-        'max_iter':             100,
-        'n_jobs':               2,
+        'max_iter':             10,
+        'n_jobs':               4,
     },
 }
 
@@ -292,7 +296,8 @@ def clean_up_reviews(reviews: Iterable[str],
     # memory-efficient way!
     assert review.dtype == np.object
     if clean_file is not None:
-        logging.info('Saving clean data to file {!r}...'.format(repr(clean_file)))
+        logging.info('Saving clean data to file {!r}...'
+                     .format(repr(clean_file)))
         pd.DataFrame(data={"review": review}) \
             .to_csv(clean_file, index=False, quoting=3)
     return review
@@ -529,55 +534,49 @@ class SimpleAverager(object):
 
     @staticmethod
     def _make_avg_feature_vector(
-            words: str, model: Dict[str, np.ndarray], known_words: Set[str],
-            average_vector: np.ndarray) -> Type[np.ndarray]:
+        words: str, known_words: Dict[str, np.ndarray],
+            average_vector: Optional[np.ndarray] = None) -> Type[np.ndarray]:
         """
         Given a list of words, returns the their average.
 
-        :param str words: Words to average.
-        :param model:     Words representation, i.e. the "word vectors"-part of
-                          Word2Vec model.
-        :type model:      KeyedVectors,
-        :param known_words: Set of all words that the model knows.
-        :type known_words: Set[str]
+        :param str words:      Words to average.
+        :param known_words:    Dictionary mapping known words to vectors.
+        :type known_words:     Dict[str, np.ndarray]
         :param average_vector: Pre-allocated zero-initialised vector. It will
                                contain the average of ``words``.
-        :type average_vector: np.ndarray
-        :return: The average of ``words``.
-        :rtype: np.ndarray
+        :type average_vector:  np.ndarray
+        :return:               The average of ``words``.
+        :rtype:                np.ndarray
         """
-        # print(type(words))
-        assert isinstance(words, str)
-        assert type(model) == dict
-        assert isinstance(known_words, Iterable)
-        assert type(average_vector) == np.ndarray
+        assert type(words) is str
+        assert type(known_words) is dict
+        assert type(average_vector) is np.ndarray
         word_count = sum(
-            1 for _ in map(lambda x: np.add(average_vector, model[x],
+            1 for _ in map(lambda x: np.add(average_vector, known_words[x],
                                             out=average_vector),
                            filter(lambda x: x in known_words, words.split()))
         )
         return np.divide(average_vector, float(word_count), out=average_vector)
 
-
-    def transform(self, reviews: Type[np.ndarray],
-                  model: Type[dict]) -> Type[np.ndarray]:
+    def transform(self, reviews: np.ndarray, model: Dict[str, np.ndarray]) \
+            -> np.ndarray:
         """
-        Given a list of reviews and a word2vec model, returns an array of
-        average feature vectors.
+        Given a list of reviews and a dictionary of known words, returns an
+        array of average feature vectors.
 
         :param reviews: Reviews to transform.
-        :type reviews: 'numpy.ndarray' of ``list`` of shape ``(#reviews,)``
-        :param model: Word2Vec model.
-        :type model: dict
-        :return: Array of average feature vectors.
-        :rtype: 'numpy.ndarray' of shape ``(#reviews, #features)``
+        :type reviews:  np.ndarray
+        :param model:   Dictionary of known words.
+        :type model:    Dict[str, np.ndarray]
+        :return:        Array of average feature vectors.
+        :rtype:         np.ndarray
         """
-        assert type(reviews) == np.ndarray
-        assert type(model) == dict
-        #don't know how to do that properly
-        number_features = len(model['dog'])
+        assert type(reviews) is np.ndarray
+        assert type(model) is dict
+        # don't know how to do that properly
+        # number_features = len(model['dog'])
+        (number_features,) = model.values().__iter__().__next__().shape
         (number_reviews,) = reviews.shape
-        known_words = model.keys()
         feature_vectors = np.zeros(
             (number_reviews, number_features), dtype='float32')
         for (i, (review, vector)) in enumerate(zip(reviews, feature_vectors)):
@@ -585,10 +584,11 @@ class SimpleAverager(object):
                 logging.info('PROGRESS: At review #{} of {}...'
                              .format(i, number_reviews))
             SimpleAverager._make_avg_feature_vector(
-                review, model, known_words, vector)
+                review, model, vector)
         return feature_vectors
 
-    def fit_transform(self, reviews: np.ndarray, model: dict):
+    def fit_transform(self, reviews: np.ndarray, model: Dict[str, np.ndarray])\
+            -> np.ndarray:
         """
         :py:class:`SimpleAverager` has no state, and :py:func:`fit_transform`
         thus simply calls :py:func:`transform`.
@@ -602,7 +602,7 @@ class KMeansAverager(object):
     word2vec vectors into a single one.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: dict) -> None:
         self.number_clusters_frac = kwargs['number_clusters_frac']
         del kwargs['number_clusters_frac']
         self.kmeans_args = kwargs
@@ -694,67 +694,114 @@ class Word2VecVectorizer(object):
         'k-means': KMeansAverager,
     }
 
-    def __init__(self, averager: str, model_file: str,
-                 train_data: Iterable[str] = None,
-                 model_args={}, averager_args={}):
+    def __init__(self,
+                 averager: str,
+                 model_file: str,
+                 model_args: Dict[str, Any],
+                 averager_args: Dict[str, Any],
+                 train_data: Optional[Iterable[str]] = None) -> None:
+        assert type(averager) is str
+        assert type(model_file) is str
+        assert type(model_args) is dict
+        assert type(averager_args) is dict
+        assert train_data is None or isinstance(train_data, Iterable)
         assert averager in {'average', 'k-means'}
-        self.averager = None
-        self.dictionary = None
-        self.word2centroid = None
-
-        if conf['word2vec']['data'] == 'model':
-            self.model = None
-
-            if train_data is not None:
-                logging.info('Training Word2Vec model...')
-                start = time.time()
-                self.model = Word2Vec(reviews2sentences(train_data), **model_args)
-                stop = time.time()
-                logging.info('Done training in {:.0f} seconds!'
-                             .format(stop - start))
-                if model_file is not None:
-                    logging.info('Saving Word2Vec model to {!r}...'
-                                 .format(model_file))
-                    self.model.save(model_file)
-            else:
-                # TODO: We do not really need the whole Word2Vec model,
-                # KeyedVectors should suffice.
-                self.model = Word2Vec.load(model_file, **model_args)
-
-            self.model = self.model.wv
-            self.dictionary = self.keyedVectors_to_dict()
-
-        if conf['word2vec']['data'] == 'dictionary':
-            self.dictionary = np.load(conf['word2vec']['dictionary']).item()
 
         self.averager = \
             Word2VecVectorizer._make_averager_fn[averager](**averager_args)
+        self.model = None
+        self.dictionary = None
+        # Yes, it's hard-coded. Yes, it's bad, but screw it! :) And what's
+        # worse, if you remove the npy extension, everything will break...
+        self.dictionary_file = model_file + '.dict.npy'
+        # First, of all, retrain the model if we're passed some training data.
+        if train_data is not None:
+            self.model = Word2VecVectorizer._retrain(
+                train_data, model_file, **model_args)
+        else:
+            # Next step is to check whether we can just load the dictionary...
+            if Path(self.dictionary_file).exists():
+                self.dictionary = np.load(self.dictionary_file).item()
+            else:
+                # Well, let's load the model and construct the dictionary
+                # afterwards...
+                # TODO: This always loads in binary format, because _retrain
+                # uses binary format for saving. Not sure if that's OK.
+                self.model = KeyedVectors.load_word2vec_format(
+                    model_file, binary=True)
+        assert self.dictionary is None and self.model is not None \
+            or self.model is None and self.dictionary is not None
 
+    @staticmethod
+    def _retrain(train_data: Iterable[str], model_file: str, **model_args) \
+            -> Word2Vec:
+        assert isinstance(train_data, Iterable)
+        assert type(model_file) is str
+        # Touch the model_file _before_ we start training so that if the path
+        # is wrong we don't wait hours for nothing...
+        Path(model_file).touch()
+
+        logging.info('Training Word2Vec model...')
+        start = time.time()
+        model = Word2Vec(reviews2sentences(train_data), **model_args).wv
+        stop = time.time()
+        logging.info('Done training in {:.0f} seconds!'
+                     .format(stop - start))
+        logging.info('Saving KeyedVectors model to {!r}...'
+                     .format(model_file))
+        # TODO: This always saves in binary format. I'm not sure that's what we
+        # want.
+        #                                                          Tom
+        model.save_word2vec_format(model_file, binary=True)
+        return model
+
+    @staticmethod
+    def _keyed_vectors_to_dict(model: KeyedVectors, reviews: np.ndarray,
+                               dictionary_file: Optional[str] = None) \
+            -> Dict[str, np.ndarray]:
+        """
+
+        """
+        assert isinstance(model, KeyedVectors)
+        assert type(reviews) is np.ndarray
+        assert dictionary_file is None or type(dictionary_file) is str
+        words = set(word for review in reviews for word in review.split())
+        dictionary = dict(map(lambda x: (x, model[x]),
+                              filter(lambda x: x in model, words)))
+        if dictionary_file is not None:
+            logging.info('Saving word→vector dictionary to {!r}...'
+                         .format(dictionary_file))
+            np.save(dictionary_file, dictionary)
+        return dictionary
 
     def fit_transform(self, reviews):
+        assert self.dictionary is None and self.model is not None \
+            or self.model is None and self.dictionary is not None
+        # Now that we have reviews at hand, let's make sure we use the
+        # dictionary and delete the model
+        if self.dictionary is None:
+            self.dictionary = Word2VecVectorizer._keyed_vectors_to_dict(
+                self.model, reviews, self.dictionary_file)
+            self.model = None
         return self.averager.fit_transform(reviews, self.dictionary)
 
     def transform(self, reviews):
+        assert self.dictionary is None and self.model is not None \
+            or self.model is None and self.dictionary is not None
+        # Same as in fit_transform, let's make sure we use the dictionary and
+        # delete the model
+        if self.dictionary is None:
+            self.dictionary = Word2VecVectorizer._keyed_vectors_to_dict(
+                self.model, reviews, self.dictionary_file)
+            self.model = None
         return self.averager.transform(reviews, self.dictionary)
-
-    def keyedVectors_to_dict(self):
-        """
-        Create a dictionary from KeyedVectors
-        """
-        dictionary = {}
-
-        for key in self.model.index2word:
-            dictionary[key] = self.model[key]
-
-        return dictionary
 
 
 def _make_vectorizer(conf):
-    type_str = conf['vectorizer']['type']
-    args = conf['vectorizer']['args']
-    if type_str == 'bagofwords':
-        return CountVectorizer(**args)
-    elif type_str == 'word2vec':
+    vectorizer_str = conf['vectorizer']
+    if vectorizer_str == 'bagofwords':
+        return CountVectorizer(**conf[vectorizer_str])
+    elif vectorizer_str == 'word2vec':
         train_data = \
             _read_data_from(conf['in']['unlabeled'])['review'] \
             if conf['word2vec']['retrain'] else None
@@ -762,22 +809,21 @@ def _make_vectorizer(conf):
             conf['word2vec']['strategy'],
             conf['word2vec']['model'],
             train_data=train_data,
-            model_args=args,
+            model_args=conf['word2vec'],
             averager_args=conf[conf['word2vec']['strategy']])
     else:
         raise Exception("Unknown vectorizer type.")
 
 
-# NOTE: @Andre, this is the place to add other classifiers.
 def _make_classifier(conf):
     _fn = {
-        'logistic-regression':LogisticRegression,
-        'naive-bayes-bagofwords':MultinomialNB,
-        'naive-bayes-word2vec':BernoulliNB,
-        'random-forest': RandomForestClassifier,
-        'neural-network': NeuralNetworkClassifier
+        'logistic-regression':    LogisticRegression,
+        'naive-bayes-bagofwords': MultinomialNB,
+        'naive-bayes-word2vec':   BernoulliNB,
+        'random-forest':          RandomForestClassifier,
+        'neural-network':         NeuralNetworkClassifier
     }
-    return _fn[conf['classifier']['type']](**conf['classifier']['args'])
+    return _fn[conf['classifier']](**conf[conf['classifier']])
 
 
 class NeuralNetworkClassifier(object):
@@ -879,33 +925,20 @@ class NeuralNetworkClassifier(object):
         return predicted_labels
 
 
-def createDictionaryPretrained(reviews):
-    unique_words = set_of_words(reviews)
-
-    model = gensim.models.KeyedVectors.load_word2vec_format('./GoogleNews-vectors-negative300.bin', binary=True)
-
-    dictionnary_words = {}
-    for word in unique_words:
-        if word in model:
-            dictionnary_words[word] = model[word]
-
-    np.save('dictionary_pretrained_16490.npy', dictionnary_words)
-    #read_dictionary = np.load('dictionary_pretrained.npy').item()
-
-def set_of_words(reviews):
-    '''
-    create the set of words
-    :param reviews:
-
-    '''
-    split_reviews = []
-    for review in reviews:
-        split_reviews.append(review.split())
-
-    flat_word_list = [item for sublist in split_reviews for item in sublist]
-    unique_words = set(flat_word_list)
-
-    return unique_words
+# def set_of_words(reviews):
+#     '''
+#     create the set of words
+#     :param reviews:
+#
+#     '''
+#     split_reviews = []
+#     for review in reviews:
+#         split_reviews.append(review.split())
+#
+#     flat_word_list = [item for sublist in split_reviews for item in sublist]
+#     unique_words = set(flat_word_list)
+#
+#     return unique_words
 
 def main():
     logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s',
@@ -917,7 +950,6 @@ def main():
                                    conf['run']['remove_stopwords'],
                                    conf['in']['clean'])
         sentiments = np.array(train_data['sentiment'], dtype=np.bool_)
-        sys.exit(0)
 
         def mk_vectorizer():
             return _make_vectorizer(conf)
@@ -931,16 +963,18 @@ def main():
                          conf['out']['wrong_result'])
     elif conf['run']['type'] == 'submission':
         train_data = _read_data_from(conf['in']['labeled'])
-        test_data = _read_data_from(conf['in']['test'])[:100] # If we don't slice until :100, a ValueError is raised.
-        # Why does the test data need to have the same size as the training data?
+        test_data = _read_data_from(conf['in']['test'])
+        # [:100] # If we don't slice until :100, a ValueError is raised.
+        # Why does the test data need to have the same size as the training
+        # data?
         ids = np.array(test_data['id'], dtype=np.unicode_)
         reviews = clean_up_reviews(train_data['review'],
                                    conf['run']['remove_stopwords'],
-                                   not conf['run']['cache_clean'])
+                                   conf['in']['clean'])
         sentiments = np.array(train_data['sentiment'], dtype=np.bool_)
         test_reviews = clean_up_reviews(test_data['review'],
-                                   conf['run']['remove_stopwords'],
-                                   not conf['run']['cache_clean'])
+                                        conf['run']['remove_stopwords'],
+                                        conf['in']['clean'])
 
         def mk_vectorizer():
             return _make_vectorizer(conf)
@@ -958,4 +992,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    cProfile.run('main()')
