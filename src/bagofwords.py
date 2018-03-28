@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 # Copyright (C) 2018 Sophie Arana
+# Copyright (C) 2018 Pauline Lauron
+# Copyright (C) 2018 André Vargas
 # Copyright (C) 2018 Johanna de Vos
 # Copyright (C) 2018 Tom Westerhout
 # Copyright (C) 2014-2018 Angela Chapman
@@ -72,70 +74,78 @@ _PROJECT_ROOT = _get_current_file_dir() / '..'
 # root directory.
 _DEFAULT_CONFIG = {
     'in': {
-        'labeled':   str(_PROJECT_ROOT / 'data' / 'labeledTrainData.tsv'),
-        'unlabeled': str(_PROJECT_ROOT / 'data' / 'unlabeledTrainData.tsv'),
-        'test':      str(_PROJECT_ROOT / 'data' / 'testData.tsv'),
-        'clean':     str(_PROJECT_ROOT / 'data' / 'cleanReviews.tsv'),
-    },
+        'labeled': 		str(_PROJECT_ROOT / 'data' / 'labeledTrainData.tsv'),
+        'unlabeled': 	str(_PROJECT_ROOT / 'data' / 'unlabeledTrainData.tsv'),
+        'test': 		str(_PROJECT_ROOT / 'data' / 'testData.tsv'),
+        'clean': 		str(_PROJECT_ROOT / 'data' / 'cleanReviews.tsv'),
+        },
     'out': {
         'result':       str(_PROJECT_ROOT / 'results' / 'Prediction.csv'),
         'wrong_result': str(_PROJECT_ROOT / 'results' / 'FalsePrediction.csv'),
-    },
+        },
     'vectorizer': {
         # Type of the vectorizer, one of {'word2vec', 'bagofwords'}
         'type': 'word2vec',
         'args': {},
-    },
-    'classifier': {
-    	# Type of the classifier to use, one of {'random-forest', 'logistic-regression', 'naive-bayes_bagofword', 'naive-bayes_word2vec'}
-        # NOTE: Currently, 'random-forest' is the only working option.
-	# for 'naive-bayes', activate alpha arg. 
-        'type': 'logistic-regression',
-        'args': {
-        #For Naive-bayes-bagofword
-            #'alpha': 0.1,  
-         #For Naive-bayes-word2vec
-            #'alpha': 1.0,    
-	#For logistic regression    
-	    'penalty':'l2', 
-	    'dual':True,    
-	    'tol': 0.0001,  
-	    'C':1,          
-	    'fit_intercept': True, 
-	    'intercept_scaling':1.0,
-	    'class_weight':None, 
-	    'random_state':None,
-	#For Random Forest  
-            #'n_estimators': 100,
-            #'n_jobs':       4,
         },
+    'classifier': {
+        # Type of the classifier to use, one of {'random-forest', 'neural-network', 'logistic-regression', 'naive-bayes-bagofwords', 'naive-bayes-word2vec'}
+        'type': 'random-forest', 
+        'args': {
+            'random-forest': {
+    				'n_estimators': 100,
+    				'n_jobs': 4,
+                },
+            'neural-network': {
+    				'batch_size': 100,
+    				'n_steps': 1000,
+    				'n_hidden_units1': 10,
+    				'n_hidden_units2': 10,
+    				'n_classes': 2,
+                },
+            'logistic-regression': {
+    				'penalty': 'l2', 
+    				'dual': True,    
+    				'tol': 0.0001,  
+    				'C': 1,          
+    				'fit_intercept': True, 
+    				'intercept_scaling': 1.0,
+    				'class_weight': None, 
+    				'random_state': None,
+                },
+            'naive-bayes-bagofwords': {
+               'alpha': 0.1,
+                },
+            'naive-bayes-word2vec': {
+               'alpha': 1.0,
+        			 },
+			},
     },
     'run': {
         # Type of the run, one of {'optimization', 'submission'}
-        'type':             'optimization',
-        'number_splits':    3,
-        'remove_stopwords': False,
-        'cache_clean':      True,
-        'test_10':          False,
-        'random':           42,
-        'alpha':            0.1,
+        'type': 'optimization',
+        'number_splits': 3,
+        'remove_stopwords': True,
+        'cache_clean': True,
+        'test_10': False,
+        'random': 42,
+        'alpha': 0.1,
     },
     'bagofwords': {},
     'word2vec': {
-        # data you want to use, one of {'model', 'dictionary'}
-        'data': 'dictionary', 
-        'model':    str(_PROJECT_ROOT / 'results'
-                                      / '300features_40minwords_10context'),
+		'data': 'dictionary',
+        'model': str(_PROJECT_ROOT / 'results' / 
+                     '300features_40minwords_10context'),
         'dictionary': str(_PROJECT_ROOT / 'dictionary_pretrained.npy'),
-        'retrain':  False,
+        'retrain': False,
         # Averaging strategy to use, one of {'average', 'k-means'}
         'strategy': 'average'
     },
     'average': {},
     'k-means': {
         'number_clusters_frac': 0.2,  # NOTE: This argument is required!
-        'max_iter':             100,
-        'n_jobs':               2,
+        'max_iter': 100,
+        'n_jobs': 2,
     },
 }
 
@@ -145,14 +155,16 @@ _DEFAULT_CONFIG = {
 # NOTE: See _DEFAULT_CONFIG for the format of the configuratio options.
 try:
     from conf import conf
+    logging.info('Using the local config file...')
 except ImportError:
     conf = _DEFAULT_CONFIG
+    logging.info('Using the default config...')
 
 
 # TODO: Fix this.
 # Turn off warnings about Beautiful Soup (Johanna has checked all of them
 # manually)
-warnings.filterwarnings("ignore", category=UserWarning, module='bs4')
+#warnings.filterwarnings("ignore", category=UserWarning, module='bs4')
 
 
 def _read_data_from(path: str) -> pd.DataFrame:
@@ -528,7 +540,6 @@ class SimpleAverager(object):
         )
         return np.divide(average_vector, float(word_count), out=average_vector)
 
-
     def transform(self, reviews: Type[np.ndarray],
                   model: Type[dict]) -> Type[np.ndarray]:
         """
@@ -651,8 +662,6 @@ class KMeansAverager(object):
         return self.transform(reviews, model)
 
 
-# NOTE: @Pauline, you might want to tweak this class to make it work with
-# pre-trained Word2Vec models.
 class Word2VecVectorizer(object):
     """
     This class implements conversion of reviews to feature vectors using
@@ -678,7 +687,8 @@ class Word2VecVectorizer(object):
             if train_data is not None:
                 logging.info('Training Word2Vec model...')
                 start = time.time()
-                self.model = Word2Vec(reviews2sentences(train_data), **model_args)
+                self.model = Word2Vec(reviews2sentences(train_data), 
+                                      **model_args)
                 stop = time.time()
                 logging.info('Done training in {:.0f} seconds!'
                              .format(stop - start))
@@ -700,7 +710,6 @@ class Word2VecVectorizer(object):
         self.averager = \
             Word2VecVectorizer._make_averager_fn[averager](**averager_args)
         
-
     def fit_transform(self, reviews):
         return self.averager.fit_transform(reviews, self.dictionary)
 
@@ -738,30 +747,31 @@ def _make_vectorizer(conf):
         raise Exception("Unknown vectorizer type.")
 
 
-# NOTE: @Andre, this is the place to add other classifiers.
 def _make_classifier(conf):
     _fn = {
-        'logistic-regression':LogisticRegression,
-        'naive-bayes-bagofwords':MultinomialNB,
-        'naive-bayes-word2vec':BernoulliNB,
+        'logistic-regression': LogisticRegression,
+        'naive-bayes-bagofwords': MultinomialNB,
+        'naive-bayes-word2vec': BernoulliNB,
         'random-forest': RandomForestClassifier,
     }
-    return _fn[conf['classifier']['type']](**conf['classifier']['args'])
-
+    classifier_type = conf['classifier']['type']
+    return _fn[classifier_type](**conf['classifier']['args'][classifier_type])
 
 
 def createDictionaryPretrained(reviews):
     unique_words = set_of_words(reviews)
         
-    model = gensim.models.KeyedVectors.load_word2vec_format('./GoogleNews-vectors-negative300.bin', binary=True)
+    model = gensim.models.KeyedVectors.load_word2vec_format('./GoogleNews-\
+                                        vectors-negative300.bin', binary=True)
     
-    dictionnary_words = {}
+    dictionary_words = {}
     for word in unique_words:
         if word in model: 
-            dictionnary_words[word] = model[word]
+            dictionary_words[word] = model[word]
 
-    np.save('dictionary_pretrained_16490.npy', dictionnary_words)        
+    np.save('dictionary_pretrained_16490.npy', dictionary_words)        
     #read_dictionary = np.load('dictionary_pretrained.npy').item()
+
     
 def set_of_words(reviews):
     '''
@@ -777,6 +787,7 @@ def set_of_words(reviews):
     unique_words = set(flat_word_list)
         
     return unique_words 
+   
     
 def main():
     logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s',
