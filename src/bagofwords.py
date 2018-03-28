@@ -41,7 +41,7 @@ import numpy as np
 import pandas as pd
 # from scipy.sparse import csr_matrix
 import sklearn
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, MiniBatchKMeans
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.naive_bayes import MultinomialNB, BernoulliNB
@@ -136,7 +136,7 @@ _DEFAULT_CONFIG = {
         # Retrain the model every time?
         'retrain':    False,
         # Averaging strategy to use, one of {'average', 'k-means'}
-        'strategy':   'average'
+        'strategy':   'k-means'
     },
     # Options specific to the random forest classifier.
     'random-forest': {
@@ -157,13 +157,25 @@ _DEFAULT_CONFIG = {
         'class_weight':      None,
         'random_state':      None,
     },
+    'neural-network': {
+        'architecture': 'convolutional',
+    },
+    'convolutional': {
+        'units': 250,
+        'n_filters': 90,
+        'kernel_size': 6,
+        'use_bias': True,
+        'loss': 'binary_crossentropy',
+        'optimizer': Adam(lr=0.0021),
+        'metrics': ['accuracy'],
+    }
     # Options specific to the "average" averaging strategy.
     'average': {},
     # Options specific to the "k-means" averaging strategy.
     'k-means': {
         'number_clusters_frac': 0.2,  # NOTE: This argument is required!
-        'max_iter':             10,
-        'n_jobs':               4,
+        # 'max_iter':             100,
+        # 'n_jobs':               4,
     },
 }
 
@@ -598,91 +610,135 @@ class SimpleAverager(object):
 
 class KMeansAverager(object):
     """
-    This class implements the 'k-means' strategy for reducing a list of
-    word2vec vectors into a single one.
+    This class implements the 'k-means' averaging strategy for reducing a list
+    of word2vec vectors to a single one.
     """
 
-    def __init__(self, **kwargs: dict) -> None:
-        self.number_clusters_frac = kwargs['number_clusters_frac']
-        del kwargs['number_clusters_frac']
+    def __init__(self, number_clusters_frac: float = None,
+                 warn_on_missing: bool = None, **kwargs: dict) -> None:
+        assert number_clusters_frac is not None
+        assert warn_on_missing is not None
+        self.number_clusters_frac = number_clusters_frac
+        self.warn_on_missing = warn_on_missing
         self.kmeans_args = kwargs
         self.kmeans = None
         self.word2centroid = None
 
     @staticmethod
-    def _make_bag_of_centroids(words: List[str], word2centroid: Dict[str, int],
-                               bag_of_centroids: Type[np.ndarray]) \
-            -> Type[np.ndarray]:
+    def _make_bag_of_centroids(
+        words: Iterable[str], word2centroid: Dict[str, int],
+        bag_of_centroids: np.ndarray, warn_on_missing: bool = False) \
+            -> np.ndarray:
         """
-        Converts a list of words into a bag of centroids.
+        Given a stream of words and a mapping of words to centroid indices,
+        converts these words to "bag of centroids" representation.
 
-        :param words: A list of words to convert.
-        :param word2centroid: A ``word → cluster index`` map.
+        :param words:            A list of words to convert.
+        :type words:             Iterable[str]
+        :param word2centroid:    A ``word → cluster index`` map.
+        :type word2centroid:     Dict[str, int]
         :param bag_of_centroids: Output array.
-        :return: Bag of centroids representation of ``words``.
+        :type bag_of_centroids:  np.ndarray
+        :param warn_on_missing:  Whether to issue warnings is some words are
+                                 not in the `word2centroid` dictionary.
+        :type warn_on_missing:   bool
+        :return:                 Bag of centroids representation of ``words``.
+        :rtype:                  np.ndarray
         """
-        assert isinstance(words, List)
+        assert isinstance(words, Iterable)
         assert isinstance(word2centroid, Dict)
-        assert type(bag_of_centroids) == np.ndarray
+        assert type(bag_of_centroids) is np.ndarray
+        assert type(warn_on_missing) is bool
         for word in words:
             i = word2centroid.get(word)
             if i is not None:
                 bag_of_centroids[i] += 1
-            else:
+            elif warn_on_missing:
                 warnings.warn(('While creating a bag of centroids: {!r} is '
-                               'not in the word-index map.').format(word))
+                               'not in the word→index map.').format(word))
         return bag_of_centroids
 
     # NOTE: This uses the third option from here
     # https://github.com/mlp2018/BagofWords/issues/16. Is this the right
     # way to go?
-    def transform(self, reviews: Type[np.ndarray],
-                  model: dict) -> Type[np.ndarray]:
+    def transform(self, reviews: np.ndarray,
+                  model: Dict[str, np.ndarray]) -> np.ndarray:
         """
-        Given a list of reviews, transforms them all to the bag of centroids
-        representation.
+        Given a list of reviews and a word2vec mapping, transforms all reviews
+        to the bag of centroids representation.
 
         :param reviews: Reviews to transform.
-        :param model: Word2Vec model to use.
-        :return: Array of bag of centroids representations of ``reviews``.
+        :type reviews:  np.ndarray
+        :param model:   ``word→vector`` mapping.
+        :type model:    Dict[str, np.ndarray]
+        :return:        Array of reviews in the "bag of centroids"
+                        representation.
         """
+        assert type(reviews) is np.ndarray
+        assert isinstance(model, Dict)
         (num_reviews,) = reviews.shape
         logging.info('Creating bags of centroids...')
         bags = np.zeros((num_reviews, self.kmeans.n_clusters), dtype='float32')
         for (review, bag) in zip(reviews, bags):
             KMeansAverager._make_bag_of_centroids(
-                review.split(), self.word2centroid, bag)
+                review.split(), self.word2centroid, bag, self.warn_on_missing)
         return bags
 
-    def fit_transform(self, reviews: Type[np.ndarray],
-                      model: Type[dict]) -> Type[np.ndarray]:
+    def fit_transform(self, reviews: np.ndarray,
+                      model: Dict[str, np.ndarray]) -> np.ndarray:
         """
-        Given a list of reviews, runs k-means clustering on them and returns
-        them in the bag of centroids representation.
+        Given a list of reviews and a word2vec mapping, runs k-means clustering
+        on the vector representation of reviews and converts them to the bag of
+        centroids representation.
+
+        :param reviews: Reviews to transform.
+        :type reviews:  np.ndarray
+        :param model:   ``word→vector`` mapping.
+        :type model:    Dict[str, np.ndarray]
+        :return:        Array of reviews in the "bag of centroids"
+                        representation.
         """
+        assert type(reviews) is np.ndarray
+        assert isinstance(model, Dict)
         (num_reviews,) = reviews.shape
         num_clusters = int(self.number_clusters_frac * num_reviews)
-        self.kmeans = KMeans(n_clusters=num_clusters, **self.kmeans_args)
+        self.kmeans = MiniBatchKMeans(
+            n_clusters=num_clusters, **self.kmeans_args)
 
         vectors = np.array(list(model.values()))
-
         logging.info('Running k-means + labeling...')
         start = time.time()
         cluster_indices = self.kmeans.fit_predict(vectors)
         end = time.time()
         logging.info('Done with k-means clustering in {:.0f} seconds!'
                      .format(end - start))
-
-        # NOTE: I'm afraid this will go wrong for big word2vec models such as
-        # the pre-trained Google's one.
         logging.info('Creating word→index map...')
         self.word2centroid = dict(zip(model.keys(), cluster_indices))
-
         return self.transform(reviews, model)
 
 
-# NOTE: @Pauline, you might want to tweak this class to make it work with
-# pre-trained Word2Vec models.
+class DummyAverager(object):
+    """
+    Averager that does not average :)
+    """
+
+    def __init__():
+        pass
+
+    @staticmethod
+    def _review2tensor(review, model):
+        return [model[word] for word in review.split() if word in model]
+
+    def transform(self, reviews, model):
+        return map(lambda review: DummyAverager._review2tensor(review, model),
+                   reviews)
+
+    def fit_transform(self, reviews, model):
+        return self.transform(review, model)
+
+
+
+
 class Word2VecVectorizer(object):
     """
     This class implements conversion of reviews to feature vectors using
@@ -706,7 +762,6 @@ class Word2VecVectorizer(object):
         assert type(averager_args) is dict
         assert train_data is None or isinstance(train_data, Iterable)
         assert averager in {'average', 'k-means'}
-
         self.averager = \
             Word2VecVectorizer._make_averager_fn[averager](**averager_args)
         self.model = None
@@ -759,9 +814,6 @@ class Word2VecVectorizer(object):
     def _keyed_vectors_to_dict(model: KeyedVectors, reviews: np.ndarray,
                                dictionary_file: Optional[str] = None) \
             -> Dict[str, np.ndarray]:
-        """
-
-        """
         assert isinstance(model, KeyedVectors)
         assert type(reviews) is np.ndarray
         assert dictionary_file is None or type(dictionary_file) is str
@@ -826,10 +878,66 @@ def _make_classifier(conf):
     return _fn[conf['classifier']](**conf[conf['classifier']])
 
 
+class ConvNNClassifier(NeuralNetworkClassifier):
+    def __init__(self, shape, n_units, n_filters, kernel_size,
+                 use_bias, loss, optimizer, metrics):
+        (n_words, n_features) = shape
+        self.model = Sequential()
+        self.model.add(Conv1D(filters=n_filters,
+                              kernel_size=kernel_size,
+                              padding='same',
+                              activation='relu',
+                              use_bias=use_bias))
+        self.model.add(MaxPooling1D(pool_size=n_words, strides=2))
+        self.model.add(Flatten())
+        self.model.add(Dense(n_units, activation='relu', use_bias=use_bias))
+        self.model.add(Dense(1, activation='sigmoid', use_bias=use_bias)) 
+        self.model.compile(loss=loss, optimizer=optimizer, metrics=metrics)
+        logging.info(model.summary())
+
+        self.batch_size = batch_size
+        self.epochs = epochs
+        self.verbose = verbose
+        self.callbacks = [EarlyStopping(patience=1)]
+
+    def fit(reviews, labels):
+        model_info = model.fit(reviews, labels,
+                               validation_data=None,
+                               epochs=self.epochs, batch_size=self.batch_size,
+                               verbose=self.verbose, callbacks=self.callbacks)
+        # plot model history
+        # plot_model_history(model_info)
+        # Final evaluation of the model
+        scores = model.evaluate(X_test, y_test, verbose=0)
+
+
+def _fit_convolutional_network(state, ):
+
 class NeuralNetworkClassifier(object):
 
-    def __init__(self, batch_size, n_steps, n_hidden_units1, n_hidden_units2,
-                 n_classes):
+    def __init__(self, input_shape,
+                 n_filters=None,
+                 kernel_size=None,
+                 padding=None,
+                 activation
+                 ):
+
+        self.model = Sequential()
+        self.model.add(Conv1D(filters=90,
+                              kernel_size=6,
+                              padding='same',
+                              activation='relu',
+                              use_bias=True))
+        self.model.add(MaxPooling1D(pool_size=500, strides = 2))
+        self.model.add(Flatten())
+        self.model.add(Dense(250, activation='relu', use_bias = True))
+        self.model.add(Dense(1, activation='sigmoid', use_bias= True)) 
+        self.model.compile(loss='binary_crossentropy', optimizer=Adam(lr=0.0021), metrics=['accuracy'])
+        print(model.summary())
+
+
+
+
         self.batch_size = batch_size
         self.n_steps = n_steps
         self.n_hidden_units1 = n_hidden_units1
