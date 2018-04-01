@@ -122,7 +122,7 @@ _DEFAULT_CONFIG = {
     },
     'bagofwords': {},
     'word2vec': {
-        'data': 'dictionary'
+        'data': 'dictionary',
         'model':    str(_PROJECT_ROOT / 'results'
                                       / '300features_40minwords_10context'),
         'dictionary': str(_PROJECT_ROOT / 'dictionary_pretrained.npy'),
@@ -376,7 +376,8 @@ def run_one_fold(train_data: Tuple[Type[np.ndarray], Type[np.ndarray]],
     logging.info('Transforming test data...')
     test_features = vectorizer.transform(test_reviews)
     logging.info('Fitting...')
-    classifier = classifier.fit(train_features, train_labels)
+
+    classifier = _fit_sff_network(classifier, train_features, train_labels)
     logging.info('Predicting test labels...')
     prediction = classifier.predict(test_features)
     if isinstance(test_data, tuple):
@@ -416,6 +417,7 @@ def split_90_10(data: Tuple[Type[np.ndarray], Type[np.ndarray]],
     x_test = reviews[test_index]
     y_train = labels[train_index]
     y_test = labels[test_index]
+
     return (x_train, y_train), (x_test, y_test)
 
 
@@ -735,25 +737,19 @@ def _make_classifier(conf):
 
 class SimpleFeedForwardNN(object):
     
-    def __init__(self, dimensions=None,batch_size=None, n_steps=None, 
-                 n_hidden_units1=None, n_hidden_units2=None, n_classes=None, 
-                 train_data_features=None):
-        
+    def __init__(self, train_dimensions=None, batch_size=None, n_steps=None,
+                 n_hidden_units1=None, n_hidden_units2=None, n_classes=None):
+
+        dimensions = train_dimensions
         self.batch_size = batch_size
         self.n_steps = n_steps
         
         model_description = str(n_hidden_units1) + '_' + str(n_hidden_units2)
         model_dir = str(_PROJECT_ROOT / 'models' / 'nn' / model_description)
-        
-        # Convert the scarce scipy feature matrices to pandas dataframes
-        self.train_df = pd.DataFrame(train_data_features)
-        
-        # Convert column names from numbers to strings
-        self.train_df.columns = self.train_df.columns.astype(str)
 
         # Create feature columns which describe how to use the input
         feat_cols = []
-        for key in self.train_df.keys():
+        for key in list(range(0, dimensions)):
             feat_cols.append(tf.feature_column.numeric_column(key=key))
     
         # Set up classifier with two hidden unit layers
@@ -764,28 +760,34 @@ class SimpleFeedForwardNN(object):
                                         n_classes=n_classes,
                                         model_dir=model_dir)
             
-def shape_train_input(classifier, features, labels, batch_size):
+def shape_train_input(features,labels,batch_size):
     """An input function for training"""
 
     # Convert the input to a dataset
     dataset = tf.data.Dataset.from_tensor_slices((dict(features), labels))
 
     # Shuffle, repeat, and batch the examples
-    dataset = dataset.shuffle(1000).repeat().batch(classifier.batch_size)
+    dataset = dataset.shuffle(1000).repeat().batch(batch_size)
 
     return dataset
 
-def _fit_sff_network(classifier, train_data_features, train_sentiments):
+def _fit_sff_network(sff, train_data_features, train_sentiments):
 
-    classifier.classifier = classifier.classifier.train(input_fn=
-                                  lambda:classifier.shape_train_input(classifier.train_df,
+    # Convert the scarce scipy feature matrices to pandas dataframes
+    train_df = pd.DataFrame(train_data_features)
+
+    # Convert column names from numbers to strings
+    train_df.columns = train_df.columns.astype(str)
+
+    sff.classifier = sff.classifier.train(input_fn=
+                                  lambda:shape_train_input(train_df,
                                                           train_sentiments,
-                                                          classifier.batch_size),
-                                                          steps=classifier.n_steps)
+                                                          sff.batch_size),
+                                                          steps=sff.n_steps)
 
-    return classifier
+    return sff
 
-def shape_pred_input(classifier, features, batch_size):
+def shape_pred_input(classifier, features):
     """An input function for evaluation or prediction"""
 
     features=dict(features)
@@ -794,7 +796,7 @@ def shape_pred_input(classifier, features, batch_size):
     dataset = tf.data.Dataset.from_tensor_slices(features)
 
     # Batch the examples
-    assert batch_size is not None, "batch_size must not be None"
+    assert classifier.batch_size is not None, "batch_size must not be None"
     dataset = dataset.batch(classifier.batch_size)
 
     print(dataset)
@@ -820,8 +822,16 @@ def _predict_sff(classifier, test_data_features):
 
     return predicted_labels   
 
-class NeuralNetworkClassifier(object):
-
+def _make_classifier(conf):
+    _fn = {
+        #'logistic-regression': LogisticRegression,
+        #'naive-bayes-bagofwords': MultinomialNB,
+        #'naive-bayes-word2vec': BernoulliNB,
+        'random-forest': RandomForestClassifier,
+        'feed-forward': SimpleFeedForwardNN,
+    }
+    classifier_type = conf['classifier']['type']
+    return _fn[classifier_type](**conf['classifier']['args'])
  
 
 
