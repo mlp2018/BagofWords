@@ -379,7 +379,7 @@ def run_one_fold(train_data: Tuple[Type[np.ndarray], Type[np.ndarray]],
 
     classifier = _fit_sff_network(classifier, train_features, train_labels)
     logging.info('Predicting test labels...')
-    prediction = classifier.predict(test_features)
+    prediction = _predict_sff(classifier, test_features)
     if isinstance(test_data, tuple):
         score = roc_auc_score(test_labels, prediction)
         logging.info('ROC AUC for this fold is {}.'.format(score))
@@ -740,7 +740,8 @@ class SimpleFeedForwardNN(object):
     def __init__(self, train_dimensions=None, batch_size=None, n_steps=None,
                  n_hidden_units1=None, n_hidden_units2=None, n_classes=None):
 
-        dimensions = train_dimensions
+        dimensions = list(range(0,train_dimensions))
+
         self.batch_size = batch_size
         self.n_steps = n_steps
         
@@ -749,8 +750,8 @@ class SimpleFeedForwardNN(object):
 
         # Create feature columns which describe how to use the input
         feat_cols = []
-        for key in list(range(0, dimensions)):
-            feat_cols.append(tf.feature_column.numeric_column(key=key))
+        for key in dimensions:
+            feat_cols.append(tf.feature_column.numeric_column(key=str(key)))
     
         # Set up classifier with two hidden unit layers
         self.classifier = tf.estimator.DNNClassifier(
@@ -787,7 +788,7 @@ def _fit_sff_network(sff, train_data_features, train_sentiments):
 
     return sff
 
-def shape_pred_input(classifier, features):
+def shape_pred_input(features,batch_size):
     """An input function for evaluation or prediction"""
 
     features=dict(features)
@@ -796,8 +797,8 @@ def shape_pred_input(classifier, features):
     dataset = tf.data.Dataset.from_tensor_slices(features)
 
     # Batch the examples
-    assert classifier.batch_size is not None, "batch_size must not be None"
-    dataset = dataset.batch(classifier.batch_size)
+    assert batch_size is not None, "batch_size must not be None"
+    dataset = dataset.batch(batch_size)
 
     print(dataset)
 
@@ -812,7 +813,7 @@ def _predict_sff(classifier, test_data_features):
     test_df.columns = test_df.columns.astype(str)
 
     predictions = classifier.classifier.predict(input_fn=
-                                lambda:classifier.shape_pred_input(test_df,
+                                lambda:shape_pred_input(test_df,
                                                         classifier.batch_size))
 
     predicted_labels = []
