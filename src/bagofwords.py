@@ -93,9 +93,9 @@ _DEFAULT_CONFIG = {
         'type': 'random-forest', 
         'args': {
             'random-forest': {
-    				'n_estimators': 100,
+    				'n_estimators': 700,
                  'n_jobs':       -1,
-                 'max_depth':    2,
+                 'max_depth':    5,
                 },
             'neural-network': {
     				'batch_size': 100,
