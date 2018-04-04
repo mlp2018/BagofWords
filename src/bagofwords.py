@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 
 # Copyright (C) 2018 Sophie Arana
-# Copyright (C) 2018 Pauline Lauron
-# Copyright (C) 2018 André Vargas
 # Copyright (C) 2018 Johanna de Vos
 # Copyright (C) 2018 Tom Westerhout
 # Copyright (C) 2014-2018 Angela Chapman
@@ -85,12 +83,12 @@ _DEFAULT_CONFIG = {
         },
     'vectorizer': {
         # Type of the vectorizer, one of {'word2vec', 'bagofwords'}
-        'type': 'word2vec',
+        'type': 'bagofwords',
         'args': {},
         },
     'classifier': {
         # Type of the classifier to use, one of {'random-forest', 'neural-network', 'logistic-regression', 'naive-bayes-bagofwords', 'naive-bayes-word2vec'}
-        'type': 'random-forest', 
+        'type': 'naive-bayes-bagofwords', 
         'args': {
             'random-forest': {
     				'n_estimators': 700,
@@ -150,22 +148,19 @@ _DEFAULT_CONFIG = {
     },
 }
 
-
 # If you have a local conf.py which defines the configuration options, it will
 # be used. Otherwise, this falls back to defaults.
 # NOTE: See _DEFAULT_CONFIG for the format of the configuratio options.
 try:
     from conf import conf
-    logging.info('Using the local config file...')
 except ImportError:
     conf = _DEFAULT_CONFIG
-    logging.info('Using the default config...')
 
 
 # TODO: Fix this.
 # Turn off warnings about Beautiful Soup (Johanna has checked all of them
 # manually)
-#warnings.filterwarnings("ignore", category=UserWarning, module='bs4')
+warnings.filterwarnings("ignore", category=UserWarning, module='bs4')
 
 
 def _read_data_from(path: str) -> pd.DataFrame:
@@ -213,7 +208,6 @@ class ReviewPreprocessor(object):
         non-alphabetical characters, and optionally removes the stopwords. The
         review is then split into lowercase words and the resulting list is
         returned.
-
         :param str review:            The review as raw HTML
         :param bool remove_stopwords: Whether to remove stopwords.
         :return:                      Review split into words.
@@ -232,7 +226,6 @@ class ReviewPreprocessor(object):
         """
         Given a review, splits the review into sentences, where each sentence
         is a list of words.
-
         :param str review:            The review as raw HTML.
         :param bool remove_stopwords: Whether to remove stopwords.
         :return:                      Review split into sentences.
@@ -261,7 +254,6 @@ def clean_up_reviews(reviews: Iterable[str],
     :py:func:`ReviewPreprocessor.review2wordlist` to each review and
     concatenates it back into a single string.
     and saves to file 'cleaned_reviews'
-
     :param reviews:               Reviews to clean up.
     :type reviews:                Iterable[str]
     :param bool remove_stopwords: Whether to remove the stopwords.
@@ -293,7 +285,6 @@ def reviews2sentences(reviews: Iterable[str],
     """
     Given a list of reviews, cleans them up, splits into sentences, and returns
     a list of *all* the sentences.
-
     :param reviews:               Reviews to clean up.
     :type reviews:                Iterable[str]
     :param bool remove_stopwords: Whether to remove the stopwords.
@@ -368,7 +359,6 @@ def run_one_fold(train_data: Tuple[Type[np.ndarray], Type[np.ndarray]],
     Given some data to train on and some data to test on, runs the whole
     feature extraction + classification procedure, computes the ROC AUC score
     of the predictions and returns it along with raw predictions.
-
     :param train_data: ``(array of reviews, array of sentiments)`` on which the
                        model will be trained.
     :param test_data:  ``(array of reviews, array of sentiments)`` on which the
@@ -405,7 +395,6 @@ def split_90_10(data: Tuple[Type[np.ndarray], Type[np.ndarray]],
     """
     Despite the very descriptive name this function does the ``1-alpha`` -
     ``alpha`` split rather than the ``90%`` - ``10%`` one.
-
     :param data: The data to split.
     :param alpha: Percentage of data to use for testing.
     :param seed: Random seed to use for splitting.
@@ -468,7 +457,6 @@ def optimization_run(reviews: Type[np.ndarray],
                      wrong_prediction_file: str) -> Type[np.array]:
     """
     This is basically the main function.
-
     :param ids: Array of review identifiers.
     :type ids: 'numpy.ndarray' of shape ``(N,)``
     :param reviews: Array of raw reviews texts.
@@ -516,7 +504,6 @@ class SimpleAverager(object):
             average_vector: Type[np.ndarray]) -> Type[np.ndarray]:
         """
         Given a list of words, returns the their average.
-
         :param str words: Words to average.
         :param model: Words representation, i.e. the "word vectors"-part of
                       Word2Vec model.
@@ -541,12 +528,12 @@ class SimpleAverager(object):
         )
         return np.divide(average_vector, float(word_count), out=average_vector)
 
+
     def transform(self, reviews: Type[np.ndarray],
                   model: Type[dict]) -> Type[np.ndarray]:
         """
         Given a list of reviews and a word2vec model, returns an array of
         average feature vectors.
-
         :param reviews: Reviews to transform.
         :type reviews: 'numpy.ndarray' of ``list`` of shape ``(#reviews,)``
         :param model: Word2Vec model.
@@ -597,7 +584,6 @@ class KMeansAverager(object):
             -> Type[np.ndarray]:
         """
         Converts a list of words into a bag of centroids.
-
         :param words: A list of words to convert.
         :param word2centroid: A ``word → cluster index`` map.
         :param bag_of_centroids: Output array.
@@ -623,7 +609,6 @@ class KMeansAverager(object):
         """
         Given a list of reviews, transforms them all to the bag of centroids
         representation.
-
         :param reviews: Reviews to transform.
         :param model: Word2Vec model to use.
         :return: Array of bag of centroids representations of ``reviews``.
@@ -663,6 +648,8 @@ class KMeansAverager(object):
         return self.transform(reviews, model)
 
 
+# NOTE: @Pauline, you might want to tweak this class to make it work with
+# pre-trained Word2Vec models.
 class Word2VecVectorizer(object):
     """
     This class implements conversion of reviews to feature vectors using
@@ -688,8 +675,7 @@ class Word2VecVectorizer(object):
             if train_data is not None:
                 logging.info('Training Word2Vec model...')
                 start = time.time()
-                self.model = Word2Vec(reviews2sentences(train_data), 
-                                      **model_args)
+                self.model = Word2Vec(reviews2sentences(train_data), **model_args)
                 stop = time.time()
                 logging.info('Done training in {:.0f} seconds!'
                              .format(stop - start))
@@ -711,6 +697,7 @@ class Word2VecVectorizer(object):
         self.averager = \
             Word2VecVectorizer._make_averager_fn[averager](**averager_args)
         
+
     def fit_transform(self, reviews):
         return self.averager.fit_transform(reviews, self.dictionary)
 
@@ -759,26 +746,24 @@ def _make_classifier(conf):
     return _fn[classifier_type](**conf['classifier']['args'][classifier_type])
 
 
+
 def createDictionaryPretrained(reviews):
     unique_words = set_of_words(reviews)
         
-    model = gensim.models.KeyedVectors.load_word2vec_format('./GoogleNews-\
-                                        vectors-negative300.bin', binary=True)
+    model = gensim.models.KeyedVectors.load_word2vec_format('./GoogleNews-vectors-negative300.bin', binary=True)
     
-    dictionary_words = {}
+    dictionnary_words = {}
     for word in unique_words:
         if word in model: 
-            dictionary_words[word] = model[word]
+            dictionnary_words[word] = model[word]
 
-    np.save('dictionary_pretrained_16490.npy', dictionary_words)        
+    np.save('dictionary_pretrained_16490.npy', dictionnary_words)        
     #read_dictionary = np.load('dictionary_pretrained.npy').item()
-
     
 def set_of_words(reviews):
     '''
     create the set of words
     :param reviews: 
-
     '''
     split_reviews = []
     for review in reviews:
@@ -788,7 +773,6 @@ def set_of_words(reviews):
     unique_words = set(flat_word_list)
         
     return unique_words 
-   
     
 def main():
     logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s',
