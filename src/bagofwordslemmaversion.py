@@ -54,8 +54,6 @@ if sys.version_info >= (3, 6):
 else:  # We have an old version of sklearn...
     from sklearn.cross_validation import StratifiedKFold
 
-lemmatizer = WordNetLemmatizer()
-lemmatization_using_pos_tagger = LemmatizationWithPOSTagger()
 
 def _get_current_file_dir() -> Path:
     """Returns the directory of the script."""
@@ -189,6 +187,9 @@ class LemmatizationWithPOSTagger(object):
         pos_tokens = [ [(word, lemmatizer.lemmatize(word,self.get_wordnet_pos(pos_tag)), [pos_tag]) for (word,pos_tag) in pos] for pos in pos_tokens]
         return pos_tokens
 
+
+lemmatizer = nltk.WordNetLemmatizer()
+lemmatization_using_pos_tagger = LemmatizationWithPOSTagger()
 
 class ReviewPreprocessor(object):
     """
