@@ -11,7 +11,8 @@ Classification Algorithms
 
 Random Forest
 **********************
-In order to optimize the Random Forest classifier, we played with the following parameters : 
+In order to optimize the Random Forest classifier, we played with the following parameters:
+
 * n_estimators which is the number of trees. Increasing this parameter, can increasing the performance but most important, it makes the predictions more stable. We choose 700 trees.
 * n_jobs which is the number of processors to run in parallel for both fit and predict. We choose -1. 
 * max_depth which is the maximum depth of the tree. We choose 5.
@@ -20,12 +21,14 @@ In order to optimize the Random Forest classifier, we played with the following 
 Naive Bayes
 **********************
 This classifier is based on the Bayes’ Theorem. To optimize, we implement a search grid. 
+
 * For bag of word, we use the model MultinomialNB because we count how often word occurs in the reviews. We choose alpha equal to 0.1
 * For word2vec : we use the model BernoulliNB because we use feature vector with binary values. We choose alpha equal to 1.2
 
 Logistic regression
 **********************
-* To optimize the Logistic regression we used the following parameters:
+To optimize the Logistic regression we used the following parameters:
+
 * As penalty we used an L2 regularization to improve the generalization performance.
 * Dual formulation is set to True given the L2 penalty
 * The tolerance for stopping criteria was set to 0.0001
@@ -37,6 +40,7 @@ Simple feedforward neural network
 Convolutional neural network
 **********************
 This Neural Network was optimized by implementing the following:
+
 * A filter of size 90, a convolutional window size 6, and a case sensitive padding, that uses a bias vector, and a nonlinear activation function ReLU (Rectified Linear Units).
 * A max pooling layer that reads five hundred words, and strides two words.
 * A flattening layer which converts all the arrays into a single linear vector.
