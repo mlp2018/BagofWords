@@ -118,13 +118,13 @@ print(model.summary())
 earlystop = EarlyStopping(patience = 1)
 callbacks_list = [earlystop]
 # Fit the model ( a number of epochs means how many times you go through your training set.)
-model_info = model.fit(X_train, y_train, epochs=4, batch_size=128, verbose=2, callbacks=callbacks_list)
+model_info = model.fit(X_train, y_train, epochs=2, batch_size=128, verbose=2, callbacks=callbacks_list)
 #calculate predictions
 predictions = model.predict(X_test)
 # round predictions
 result = [round(x[0]) for x in predictions]
 
-pd.DataFrame(data={"id": X_test_data["id"], "sentiment": result}) \
+pd.DataFrame(data={"id": X_test["id"], "sentiment": result}) \
 	.to_csv(_DATA_FILE['result'], index=False, quoting=3)
 #preds = pd.DataFrame(rounded, columns=['predictions']).to_csv('predictionCNN.csv')
 #np.savetxt('~/BagofWords/results/CNNMpreds.csv', rounded, delimiter=',')
