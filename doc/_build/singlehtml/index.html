@@ -4,20 +4,12 @@
 
 <html xmlns="http://www.w3.org/1999/xhtml">
   <head>
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     <title>Bag of Words 0.1 documentation</title>
     <link rel="stylesheet" href="_static/alabaster.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
-    <script type="text/javascript">
-      var DOCUMENTATION_OPTIONS = {
-        URL_ROOT:    './',
-        VERSION:     '0.1',
-        COLLAPSE_INDEX: false,
-        FILE_SUFFIX: '.html',
-        HAS_SOURCE:  true,
-        SOURCELINK_SUFFIX: '.txt'
-      };
-    </script>
+    <script type="text/javascript" src="_static/documentation_options.js"></script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
@@ -30,8 +22,7 @@
   
   <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
 
-  </head>
-  <body>
+  </head><body>
   
 
     <div class="document">
@@ -44,96 +35,53 @@
 <div class="toctree-wrapper compound">
 </div>
 </div>
-<div class="section" id="some-section">
-<h1>Some section<a class="headerlink" href="#some-section" title="Permalink to this headline">¶</a></h1>
-<p>Hello world!</p>
-<dl class="class">
-<dt id="bagofwords.ReviewPreprocessor">
-<em class="property">class </em><code class="descclassname">bagofwords.</code><code class="descname">ReviewPreprocessor</code><a class="headerlink" href="#bagofwords.ReviewPreprocessor" title="Permalink to this definition">¶</a></dt>
-<dd><p><a class="reference internal" href="#bagofwords.ReviewPreprocessor" title="bagofwords.ReviewPreprocessor"><code class="xref py py-class docutils literal"><span class="pre">ReviewPreprocessor</span></code></a> is an utility class for processing raw HTML
-text into segments for further learning.</p>
-<dl class="staticmethod">
-<dt id="bagofwords.ReviewPreprocessor.review2sentences">
-<em class="property">static </em><code class="descname">review2sentences</code><span class="sig-paren">(</span><em>review: str</em>, <em>remove_stopwords: bool = False</em><span class="sig-paren">)</span> &#x2192; typing.Iterable[typing.List[str]]<a class="headerlink" href="#bagofwords.ReviewPreprocessor.review2sentences" title="Permalink to this definition">¶</a></dt>
-<dd><p>Given a review, splits it into sentences where each sentence
-is a list of words.</p>
-<table class="docutils field-list" frame="void" rules="none">
-<col class="field-name" />
-<col class="field-body" />
-<tbody valign="top">
-<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
-<li><strong>review</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.6)"><em>str</em></a>) – The review as raw HTML.</li>
-<li><strong>remove_stopwords</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.6)"><em>bool</em></a>) – Whether to remove the stopwords.</li>
+<div class="section" id="classification-algorithms">
+<h1>Classification Algorithms<a class="headerlink" href="#classification-algorithms" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="random-forest">
+<h2>Random Forest<a class="headerlink" href="#random-forest" title="Permalink to this headline">¶</a></h2>
+<p>In order to optimize the Random Forest classifier, we played with the following parameters:</p>
+<ul class="simple">
+<li>n_estimators which is the number of trees. Increasing this parameter, can increasing the performance but most important, it makes the predictions more stable. We choose 700 trees.</li>
+<li>n_jobs which is the number of processors to run in parallel for both fit and predict. We choose -1.</li>
+<li>max_depth which is the maximum depth of the tree. We choose 5.</li>
+<li>max_features which is the number of features to try for each tree. When we increase this parameters, we also increase the performance. But we have to be concerned about the fact that if we take too many features, we decrease the diversity of each tree. We use ‘auto’ which is the similar to ‘sqrt’.</li>
 </ul>
-</td>
-</tr>
-<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first">Review split into sentences.</p>
-</td>
-</tr>
-<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body"><p class="first last">Iterable[List[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.6)">str</a>]]</p>
-</td>
-</tr>
-</tbody>
-</table>
-</dd></dl>
-
-<dl class="staticmethod">
-<dt id="bagofwords.ReviewPreprocessor.review2wordlist">
-<em class="property">static </em><code class="descname">review2wordlist</code><span class="sig-paren">(</span><em>review: str</em>, <em>remove_stopwords: bool = False</em><span class="sig-paren">)</span> &#x2192; typing.List[str]<a class="headerlink" href="#bagofwords.ReviewPreprocessor.review2wordlist" title="Permalink to this definition">¶</a></dt>
-<dd><p>Given a review, parses it as HTML, removes all URLs and
-non-alphabetical characters, and optionally removes the stopwords. The
-review is then split into lowercase words and the resulting list is
-returned.</p>
-<table class="docutils field-list" frame="void" rules="none">
-<col class="field-name" />
-<col class="field-body" />
-<tbody valign="top">
-<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
-<li><strong>review</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.6)"><em>str</em></a>) – The review as raw HTML.</li>
-<li><strong>remove_stopwords</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.6)"><em>bool</em></a>) – Whether to remove the stopwords.</li>
+</div>
+<div class="section" id="naive-bayes">
+<h2>Naive Bayes<a class="headerlink" href="#naive-bayes" title="Permalink to this headline">¶</a></h2>
+<p>This classifier is based on the Bayes’ Theorem. To optimize, we implement a search grid.</p>
+<ul class="simple">
+<li>For bag of word, we use the model MultinomialNB because we count how often word occurs in the reviews. We choose alpha equal to 0.1</li>
+<li>For word2vec : we use the model BernoulliNB because we use feature vector with binary values. We choose alpha equal to 1.2</li>
 </ul>
-</td>
-</tr>
-<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first">Review split into words.</p>
-</td>
-</tr>
-<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body"><p class="first last">List[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.6)">str</a>]</p>
-</td>
-</tr>
-</tbody>
-</table>
-</dd></dl>
-
-</dd></dl>
-
-<dl class="function">
-<dt id="bagofwords.clean_up_reviews">
-<code class="descclassname">bagofwords.</code><code class="descname">clean_up_reviews</code><span class="sig-paren">(</span><em>reviews: typing.Iterable[str], remove_stopwords: bool = True, clean_file: typing.Union[str, NoneType] = None</em><span class="sig-paren">)</span> &#x2192; numpy.ndarray<a class="headerlink" href="#bagofwords.clean_up_reviews" title="Permalink to this definition">¶</a></dt>
-<dd><p>Given an list of reviews, either loads pre-computed clean reviews from
-<code class="docutils literal"><span class="pre">clean_file</span></code> or applies <a class="reference internal" href="#bagofwords.ReviewPreprocessor.review2wordlist" title="bagofwords.ReviewPreprocessor.review2wordlist"><code class="xref py py-func docutils literal"><span class="pre">ReviewPreprocessor.review2wordlist()</span></code></a> to
-each review and converts it into an <code class="xref py py-class docutils literal"><span class="pre">numpy.ndarray</span></code>. Also, if
-<code class="docutils literal"><span class="pre">clean_file</span></code> is not <code class="docutils literal"><span class="pre">None</span></code> clean reviews are saved to it.</p>
-<table class="docutils field-list" frame="void" rules="none">
-<col class="field-name" />
-<col class="field-body" />
-<tbody valign="top">
-<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
-<li><strong>reviews</strong> (<em>Iterable</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.6)"><em>str</em></a><em>]</em>) – Reviews to clean up.</li>
-<li><strong>remove_stopwords</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.6)"><em>bool</em></a>) – Whether to remove the stopwords.</li>
-<li><strong>clean_file</strong> (<em>Optional</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.6)"><em>str</em></a><em>]</em>) – File where clean reviews are stored.</li>
+</div>
+<div class="section" id="logistic-regression">
+<h2>Logistic regression<a class="headerlink" href="#logistic-regression" title="Permalink to this headline">¶</a></h2>
+<p>To optimize the Logistic regression we used the following parameters:</p>
+<ul class="simple">
+<li>As penalty we used an L2 regularization to improve the generalization performance.</li>
+<li>Dual formulation is set to True given the L2 penalty</li>
+<li>The tolerance for stopping criteria was set to 0.0001</li>
+<li>A bias intercept was added</li>
 </ul>
-</td>
-</tr>
-<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first">Iterable of clean reviews.</p>
-</td>
-</tr>
-<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body"><p class="first last">Iterable[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.6)">str</a>]</p>
-</td>
-</tr>
-</tbody>
-</table>
-</dd></dl>
-
+</div>
+<div class="section" id="simple-feedforward-neural-network">
+<h2>Simple feedforward neural network<a class="headerlink" href="#simple-feedforward-neural-network" title="Permalink to this headline">¶</a></h2>
+</div>
+<div class="section" id="convolutional-neural-network">
+<h2>Convolutional neural network<a class="headerlink" href="#convolutional-neural-network" title="Permalink to this headline">¶</a></h2>
+<p>This Neural Network was optimized by implementing the following:</p>
+<ul class="simple">
+<li>A filter of size 90, a convolutional window size 6, and a case sensitive padding, that uses a bias vector, and a nonlinear activation function ReLU (Rectified Linear Units).</li>
+<li>A max pooling layer that reads five hundred words, and strides two words.</li>
+<li>A flattening layer which converts all the arrays into a single linear vector.</li>
+<li>A dense layer that is an artificial neural network classifier with size of 250 units, a nonlinear activation function ReLU (Rectified Linear Units), that uses a bias vector.</li>
+<li>A dropout layer that consists in randomly setting a fraction rate of input units to 0 at each update during training time, which helps prevent overfitting. The network becomes less sensitive to the specific weights of neurons. This parameter is set to 0.1</li>
+<li>A final dense layer that is an artificial neural network classifier with size 1, and a sigmoid activation function that uses a bias vector.</li>
+<li>We compile this neural network using a binary cross entropy cost function, with an Adam optimizer that has a slow learning rate set to 0.0021.</li>
+<li>We implement an early stopping function to with patience set to 3 over 10 epochs to fit the model.</li>
+</ul>
+</div>
 </div>
 <div class="section" id="indices-and-tables">
 <h1>Indices and tables<a class="headerlink" href="#indices-and-tables" title="Permalink to this headline">¶</a></h1>
@@ -164,7 +112,7 @@ each review and converts it into an <code class="xref py py-class docutils liter
       &copy;2018, Andre, Johanna, Pauline, Robert, Sophie, Tom.
       
       |
-      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.6.6+</a>
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.7.2</a>
       &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.10</a>
       
     </div>
