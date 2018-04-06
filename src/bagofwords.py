@@ -48,6 +48,15 @@ from sklearn.metrics import roc_auc_score
 import tensorflow as tf
 
 
+from keras.models import Sequential
+from keras.layers import Activation
+from keras.optimizers import SGD
+from keras.layers import Dense
+from keras.utils import np_utils
+import numpy as np
+import os
+
+
 def _get_sklearn_version() -> Tuple[int, int, int]:
     """
     Returns the version of scikit-learn as a tuple.
@@ -377,13 +386,14 @@ def run_one_fold(train_data: Tuple[Type[np.ndarray], Type[np.ndarray]],
     test_features = vectorizer.transform(test_reviews)
     logging.info('Fitting...')
 
+    train_labels = np_utils.to_categorical(train_labels,2)
+    test_labels = np_utils.to_categorical(test_labels,2)
+
+
     classifier = _fit_sff_network(classifier, train_features, train_labels)
     logging.info('Predicting test labels...')
-    prediction = _predict_sff(classifier, test_features)
-    if isinstance(test_data, tuple):
-        score = roc_auc_score(test_labels, prediction)
-        logging.info('ROC AUC for this fold is {}.'.format(score))
-    return score, prediction
+    loss, accuracy = _predict_sff(classifier, test_features, test_labels)
+    return loss, accuracy
 
 
 def split_90_10(data: Tuple[Type[np.ndarray], Type[np.ndarray]],
@@ -739,89 +749,30 @@ class SimpleFeedForwardNN(object):
     
     def __init__(self, train_dimensions=None, batch_size=None, n_steps=None,
                  n_hidden_units1=None, n_hidden_units2=None, n_classes=None):
+        # define the architecture of the network
+        self.model = Sequential()
+        self.model.add(Dense(n_hidden_units1, input_dim=train_dimensions, init="uniform",
+                            activation="relu"))
+        self.model.add(Dense(n_hidden_units2, init="uniform", activation="relu"))
+        self.model.add(Dense(2))
+        self.model.add(Activation("softmax"))
 
-        dimensions = list(range(0,train_dimensions))
-
-        self.batch_size = batch_size
-        self.n_steps = n_steps
-        
-        model_description = str(n_hidden_units1) + '_' + str(n_hidden_units2)
-        model_dir = str(_PROJECT_ROOT / 'models' / 'nn' / model_description)
-
-        # Create feature columns which describe how to use the input
-        feat_cols = []
-        for key in dimensions:
-            feat_cols.append(tf.feature_column.numeric_column(key=str(key)))
-    
-        # Set up classifier with two hidden unit layers
-        self.classifier = tf.estimator.DNNClassifier(
-                                        feature_columns=feat_cols,
-                                        hidden_units=[n_hidden_units1,
-                                                      n_hidden_units2],
-                                        n_classes=n_classes,
-                                        model_dir=model_dir)
-            
-def shape_train_input(features,labels,batch_size):
-    """An input function for training"""
-
-    # Convert the input to a dataset
-    dataset = tf.data.Dataset.from_tensor_slices((dict(features), labels))
-
-    # Shuffle, repeat, and batch the examples
-    dataset = dataset.shuffle(1000).repeat().batch(batch_size)
-
-    return dataset
 
 def _fit_sff_network(sff, train_data_features, train_sentiments):
 
-    # Convert the scarce scipy feature matrices to pandas dataframes
-    train_df = pd.DataFrame(train_data_features)
+   sgd = SGD(lr=0.01)
+   sff.model.compile(loss="binary_crossentropy",optimizer=sgd, metrics=["accuracy"])
+   sff.model.fit(train_data_features, train_sentiments, nb_epoch=50, batch_size=128)
+   return sff
 
-    # Convert column names from numbers to strings
-    train_df.columns = train_df.columns.astype(str)
+def _predict_sff(classifier, test_data_features, test_sentiments):
 
-    sff.classifier = sff.classifier.train(input_fn=
-                                  lambda:shape_train_input(train_df,
-                                                          train_sentiments,
-                                                          sff.batch_size),
-                                                          steps=sff.n_steps)
-
-    return sff
-
-def shape_pred_input(features,batch_size):
-    """An input function for evaluation or prediction"""
-
-    features=dict(features)
-
-    # Convert the inputs to a dataset
-    dataset = tf.data.Dataset.from_tensor_slices(features)
-
-    # Batch the examples
-    assert batch_size is not None, "batch_size must not be None"
-    dataset = dataset.batch(batch_size)
-
-    print(dataset)
-
-    return dataset
-
-def _predict_sff(classifier, test_data_features):
-
-    # Convert the scarce scipy feature matrices to pandas dataframes
-    test_df = pd.DataFrame(test_data_features)
-
-    # Convert column names from numbers to strings
-    test_df.columns = test_df.columns.astype(str)
-
-    predictions = classifier.classifier.predict(input_fn=
-                                lambda:shape_pred_input(test_df,
-                                                        classifier.batch_size))
-
-    predicted_labels = []
-
-    for pred_dict in predictions:
-        predicted_labels.append(pred_dict['class_ids'][0])
-
-    return predicted_labels   
+    print("[INFO] evaluating on testing set...")
+    (loss, accuracy) = classifier.model.evaluate(test_data_features, test_sentiments,
+                                      batch_size=128, verbose=1)
+    print("[INFO] loss={:.4f}, accuracy: {:.4f}%".format(loss,
+                                                         accuracy * 100))
+    return loss, accuracy
 
 def _make_classifier(conf):
     _fn = {
