@@ -35,6 +35,15 @@ import warnings
 
 from bs4 import BeautifulSoup
 from gensim.models import Word2Vec, KeyedVectors
+from keras.models import Sequential
+from keras.layers import Dense
+from keras.layers import Flatten
+from keras.layers.convolutional import Conv1D
+from keras.layers.convolutional import MaxPooling1D
+from keras import regularizers
+from keras import optimizers
+from keras.optimizers import Adam
+from keras.callbacks import EarlyStopping
 import nltk.corpus
 import nltk.tokenize
 import numpy as np
@@ -129,14 +138,16 @@ _DEFAULT_CONFIG = {
         # File name where to save/read the model to/from. Dictionary file is
         # computes from it as
         # dictionary_file = model_file + '.dict.npy'
-        'model':      str(_PROJECT_ROOT / 'data'
+        'model_file': str(_PROJECT_ROOT / 'data'
                           / 'GoogleNews-vectors-negative300.bin'),
-        # 'model':      str(_PROJECT_ROOT / 'results'
-        #                   / '300features_40minwords_10context'),
+        'cache_file': str(_PROJECT_ROOT / 'data'
+                          / 'GoogleNews-vectors-negative300.compact.bin'),
+        # 'model_file': str(_PROJECT_ROOT / 'w2v.bin'),
+        # 'cache_file': str(_PROJECT_ROOT / 'w2v.cache'),
         # Retrain the model every time?
         'retrain':    False,
         # Averaging strategy to use, one of {'average', 'k-means'}
-        'strategy':   'k-means'
+        'strategy':   'k-means',
     },
     # Options specific to the random forest classifier.
     'random-forest': {
@@ -158,22 +169,28 @@ _DEFAULT_CONFIG = {
         'random_state':      None,
     },
     'neural-network': {
-        'architecture': 'convolutional',
+        'needs_input_shape':  True,
+        'architecture':       'convolutional',
     },
     'convolutional': {
-        'units': 250,
+        'n_units': 250,
         'n_filters': 90,
+        'n_epochs': 4,
+        'verbose': 2,
         'kernel_size': 6,
+        'batch_size': 128,
         'use_bias': True,
         'loss': 'binary_crossentropy',
         'optimizer': Adam(lr=0.0021),
         'metrics': ['accuracy'],
-    }
+    },
+    'dummy': {},
     # Options specific to the "average" averaging strategy.
     'average': {},
     # Options specific to the "k-means" averaging strategy.
     'k-means': {
         'number_clusters_frac': 0.2,  # NOTE: This argument is required!
+        'warn_on_missing': False,
         # 'max_iter':             100,
         # 'n_jobs':               4,
     },
@@ -546,7 +563,7 @@ class SimpleAverager(object):
 
     @staticmethod
     def _make_avg_feature_vector(
-        words: str, known_words: Dict[str, np.ndarray],
+        words: str, known_words: KeyedVectors,
             average_vector: Optional[np.ndarray] = None) -> Type[np.ndarray]:
         """
         Given a list of words, returns the their average.
@@ -561,7 +578,7 @@ class SimpleAverager(object):
         :rtype:                np.ndarray
         """
         assert type(words) is str
-        assert type(known_words) is dict
+        assert isinstance(known_words, KeyedVectors)
         assert type(average_vector) is np.ndarray
         word_count = sum(
             1 for _ in map(lambda x: np.add(average_vector, known_words[x],
@@ -570,7 +587,7 @@ class SimpleAverager(object):
         )
         return np.divide(average_vector, float(word_count), out=average_vector)
 
-    def transform(self, reviews: np.ndarray, model: Dict[str, np.ndarray]) \
+    def transform(self, reviews: np.ndarray, model: KeyedVectors) \
             -> np.ndarray:
         """
         Given a list of reviews and a dictionary of known words, returns an
@@ -584,10 +601,10 @@ class SimpleAverager(object):
         :rtype:         np.ndarray
         """
         assert type(reviews) is np.ndarray
-        assert type(model) is dict
+        assert isinstance(model, KeyedVectors)
         # don't know how to do that properly
         # number_features = len(model['dog'])
-        (number_features,) = model.values().__iter__().__next__().shape
+        (_,number_features) = model.syn0.shape
         (number_reviews,) = reviews.shape
         feature_vectors = np.zeros(
             (number_reviews, number_features), dtype='float32')
@@ -685,7 +702,7 @@ class KMeansAverager(object):
         return bags
 
     def fit_transform(self, reviews: np.ndarray,
-                      model: Dict[str, np.ndarray]) -> np.ndarray:
+                      model: KeyedVectors) -> np.ndarray:
         """
         Given a list of reviews and a word2vec mapping, runs k-means clustering
         on the vector representation of reviews and converts them to the bag of
@@ -699,13 +716,13 @@ class KMeansAverager(object):
                         representation.
         """
         assert type(reviews) is np.ndarray
-        assert isinstance(model, Dict)
+        assert isinstance(model, KeyedVectors)
         (num_reviews,) = reviews.shape
         num_clusters = int(self.number_clusters_frac * num_reviews)
         self.kmeans = MiniBatchKMeans(
             n_clusters=num_clusters, **self.kmeans_args)
 
-        vectors = np.array(list(model.values()))
+        vectors = model.syn0
         logging.info('Running k-means + labeling...')
         start = time.time()
         cluster_indices = self.kmeans.fit_predict(vectors)
@@ -713,7 +730,7 @@ class KMeansAverager(object):
         logging.info('Done with k-means clustering in {:.0f} seconds!'
                      .format(end - start))
         logging.info('Creating word→index map...')
-        self.word2centroid = dict(zip(model.keys(), cluster_indices))
+        self.word2centroid = dict(zip(model.index2word, cluster_indices))
         return self.transform(reviews, model)
 
 
@@ -722,21 +739,20 @@ class DummyAverager(object):
     Averager that does not average :)
     """
 
-    def __init__():
+    def __init__(self):
         pass
 
     @staticmethod
     def _review2tensor(review, model):
-        return [model[word] for word in review.split() if word in model]
+        return np.array([model[word] for word in review.split() if word in
+                         model])
 
     def transform(self, reviews, model):
-        return map(lambda review: DummyAverager._review2tensor(review, model),
-                   reviews)
+        return np.array([DummyAverager._review2tensor(review, model)
+                         for review in reviews])
 
     def fit_transform(self, reviews, model):
-        return self.transform(review, model)
-
-
+        return self.transform(reviews, model)
 
 
 class Word2VecVectorizer(object):
@@ -748,44 +764,44 @@ class Word2VecVectorizer(object):
     _make_averager_fn = {
         'average': SimpleAverager,
         'k-means': KMeansAverager,
+        'dummy':   DummyAverager,
     }
 
     def __init__(self,
-                 averager: str,
+                 strategy: str,
                  model_file: str,
-                 model_args: Dict[str, Any],
-                 averager_args: Dict[str, Any],
+                 model_args: Optional[Dict[str, Any]] = None,
+                 averager_args: Optional[Dict[str, Any]] = None,
+                 cache_file: Optional[str] = None,
+                 retrain: bool = False,
                  train_data: Optional[Iterable[str]] = None) -> None:
-        assert type(averager) is str
+        assert type(strategy) is str
         assert type(model_file) is str
-        assert type(model_args) is dict
         assert type(averager_args) is dict
+        assert cache_file is None or type(cache_file) is str
         assert train_data is None or isinstance(train_data, Iterable)
-        assert averager in {'average', 'k-means'}
         self.averager = \
-            Word2VecVectorizer._make_averager_fn[averager](**averager_args)
+            Word2VecVectorizer._make_averager_fn[strategy](**averager_args)
         self.model = None
-        self.dictionary = None
-        # Yes, it's hard-coded. Yes, it's bad, but screw it! :) And what's
-        # worse, if you remove the npy extension, everything will break...
-        self.dictionary_file = model_file + '.dict.npy'
-        # First, of all, retrain the model if we're passed some training data.
+        self.cache_file = cache_file
+        self.is_compact = False
+        # First of all, retrain the model if we're passed some training data.
         if train_data is not None:
             self.model = Word2VecVectorizer._retrain(
                 train_data, model_file, **model_args)
         else:
-            # Next step is to check whether we can just load the dictionary...
-            if Path(self.dictionary_file).exists():
-                self.dictionary = np.load(self.dictionary_file).item()
+            # If we already have our model cached, let's just load it.
+            if cache_file is not None and Path(cache_file).exists():
+                self.model = KeyedVectors.load_word2vec_format(
+                    cache_file, binary=True)
+                self.is_compact = True
             else:
-                # Well, let's load the model and construct the dictionary
-                # afterwards...
+                # Well, let's load the model and construct remove all
+                # unnecessary stuff afterwards...
                 # TODO: This always loads in binary format, because _retrain
                 # uses binary format for saving. Not sure if that's OK.
                 self.model = KeyedVectors.load_word2vec_format(
                     model_file, binary=True)
-        assert self.dictionary is None and self.model is not None \
-            or self.model is None and self.dictionary is not None
 
     @staticmethod
     def _retrain(train_data: Iterable[str], model_file: str, **model_args) \
@@ -811,42 +827,61 @@ class Word2VecVectorizer(object):
         return model
 
     @staticmethod
-    def _keyed_vectors_to_dict(model: KeyedVectors, reviews: np.ndarray,
-                               dictionary_file: Optional[str] = None) \
-            -> Dict[str, np.ndarray]:
+    def _compress_keyed_vectors(model: KeyedVectors, reviews: np.ndarray,
+                                cache_file: Optional[str] = None) -> None:
         assert isinstance(model, KeyedVectors)
         assert type(reviews) is np.ndarray
-        assert dictionary_file is None or type(dictionary_file) is str
-        words = set(word for review in reviews for word in review.split())
-        dictionary = dict(map(lambda x: (x, model[x]),
-                              filter(lambda x: x in model, words)))
-        if dictionary_file is not None:
-            logging.info('Saving word→vector dictionary to {!r}...'
-                         .format(dictionary_file))
-            np.save(dictionary_file, dictionary)
-        return dictionary
+        assert cache_file is None or type(cache_file) is str
+        required_words = set(word for review in reviews
+                             for word in review.split())
+        for (i, word) in enumerate(model.index2word):
+            assert model.vocab[word].index == i
+
+        # This is a really shady piece :)
+        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        # First of all, extract all the words we really need
+        index2word = [w for w in model.index2word if w in required_words]
+
+        def update_index(item, index):
+            item.index = index
+            return item
+        # In the first approximation, we want
+        # vocab = dict((w, model.vocab[w]) for w in index2word)
+        # i.e. to keep the data for words which are in index2word. The problem
+        # is that Vocab type has a field index which stores word's index in the
+        # syn0 vector and index2word list. We, obbiously, break this indexing
+        # by rebuilding index2word from scratch. So here we manually
+        # reconstruct correct indexing.
+        vocab = dict((w, update_index(model.vocab[w], i))
+                     for (i, w) in enumerate(index2word))
+        # Now, extract correct indices as an np.ndarray
+        indices = np.fromiter(map(lambda x: x.index, vocab.values()), dtype=int)
+        # Only keep feature vectors for the words we really need.
+        vectors = model.syn0[indices]
+        # Do the actual update
+        model.index2word = index2word
+        model.vocab = vocab
+        model.syn0 = vectors
+        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        # end shady code...
+
+        if cache_file is not None:
+            model.save_word2vec_format(cache_file, binary=True)
+        return model
 
     def fit_transform(self, reviews):
-        assert self.dictionary is None and self.model is not None \
-            or self.model is None and self.dictionary is not None
-        # Now that we have reviews at hand, let's make sure we use the
-        # dictionary and delete the model
-        if self.dictionary is None:
-            self.dictionary = Word2VecVectorizer._keyed_vectors_to_dict(
-                self.model, reviews, self.dictionary_file)
-            self.model = None
-        return self.averager.fit_transform(reviews, self.dictionary)
+        if not self.is_compact:
+            self.model = Word2VecVectorizer._compress_keyed_vectors(
+                self.model, reviews, self.cache_file)
+            self.is_compact = True
+        return self.averager.fit_transform(reviews, self.model)
 
     def transform(self, reviews):
-        assert self.dictionary is None and self.model is not None \
-            or self.model is None and self.dictionary is not None
-        # Same as in fit_transform, let's make sure we use the dictionary and
-        # delete the model
-        if self.dictionary is None:
-            self.dictionary = Word2VecVectorizer._keyed_vectors_to_dict(
-                self.model, reviews, self.dictionary_file)
-            self.model = None
-        return self.averager.transform(reviews, self.dictionary)
+        if not self.is_compact:
+            self.model = Word2VecVectorizer._compress_keyed_vectors(
+                self.model, reviews, self.cache_file)
+            self.is_compact = True
+        return self.averager.transform(reviews, self.model)
 
 
 def _make_vectorizer(conf):
@@ -858,11 +893,9 @@ def _make_vectorizer(conf):
             _read_data_from(conf['in']['unlabeled'])['review'] \
             if conf['word2vec']['retrain'] else None
         return Word2VecVectorizer(
-            conf['word2vec']['strategy'],
-            conf['word2vec']['model'],
-            train_data=train_data,
-            model_args=conf['word2vec'],
-            averager_args=conf[conf['word2vec']['strategy']])
+            **conf['word2vec'],
+            averager_args=conf[conf['word2vec']['strategy']],
+            train_data=train_data)
     else:
         raise Exception("Unknown vectorizer type.")
 
@@ -873,54 +906,75 @@ def _make_classifier(conf):
         'naive-bayes-bagofwords': MultinomialNB,
         'naive-bayes-word2vec':   BernoulliNB,
         'random-forest':          RandomForestClassifier,
-        'neural-network':         NeuralNetworkClassifier
+        'neural-network':         ConvNNClassifier
     }
-    return _fn[conf['classifier']](**conf[conf['classifier']])
+    if conf['classifier'] == 'neural-network':
+        if conf['neural-network']['architecture'] == 'convolutional':
+            return ConvNNClassifier(**conf['convolutional'])
+        else:
+            assert False
+    else:
+        return _fn[conf['classifier']](**conf[conf['classifier']])
 
 
-class ConvNNClassifier(NeuralNetworkClassifier):
-    def __init__(self, shape, n_units, n_filters, kernel_size,
-                 use_bias, loss, optimizer, metrics):
-        (n_words, n_features) = shape
-        self.model = Sequential()
-        self.model.add(Conv1D(filters=n_filters,
-                              kernel_size=kernel_size,
-                              padding='same',
-                              activation='relu',
-                              use_bias=use_bias))
-        self.model.add(MaxPooling1D(pool_size=n_words, strides=2))
-        self.model.add(Flatten())
-        self.model.add(Dense(n_units, activation='relu', use_bias=use_bias))
-        self.model.add(Dense(1, activation='sigmoid', use_bias=use_bias)) 
-        self.model.compile(loss=loss, optimizer=optimizer, metrics=metrics)
-        logging.info(model.summary())
-
+class ConvNNClassifier(object):
+    def __init__(self, n_units, n_filters, kernel_size,
+                 use_bias, n_epochs, batch_size, loss,
+                 optimizer, metrics, verbose):
+        self.n_units = n_units
+        self.n_filters = n_filters
+        self.kernel_size = kernel_size
+        self.use_bias = use_bias
+        self.loss = loss
+        self.optimizer = optimizer
+        self.metrics = metrics
         self.batch_size = batch_size
-        self.epochs = epochs
+        self.n_epochs = n_epochs
         self.verbose = verbose
         self.callbacks = [EarlyStopping(patience=1)]
+        self.model = None
+        self.history = None
 
-    def fit(reviews, labels):
-        model_info = model.fit(reviews, labels,
-                               validation_data=None,
-                               epochs=self.epochs, batch_size=self.batch_size,
-                               verbose=self.verbose, callbacks=self.callbacks)
-        # plot model history
-        # plot_model_history(model_info)
-        # Final evaluation of the model
-        scores = model.evaluate(X_test, y_test, verbose=0)
+    def _construct(self, shape):
+        (n_words, n_features) = shape
+        model = Sequential()
+        model.add(Conv1D(filters=self.n_filters,
+                         kernel_size=self.kernel_size,
+                         padding='same',
+                         activation='relu',
+                         use_bias=self.use_bias))
+        model.add(MaxPooling1D(pool_size=n_words, strides=2))
+        model.add(Flatten())
+        model.add(Dense(self.n_units, activation='relu', use_bias=self.use_bias))
+        model.add(Dense(1, activation='sigmoid', use_bias=self.use_bias))
+        model.compile(loss=self.loss, optimizer=self.optimizer, metrics=self.metrics)
+        logging.info(model.summary())
+        return model
 
+    def fit(self, reviews, labels):
+        print(reviews)
+        print(reviews.shape)
+        print(reviews.dtype)
+        (n_words, n_features) = reviews[0].shape
+        self.model = self._construct((n_words, n_features))
+        self.history = model.fit(x=reviews, y=labels,
+                                 validation_data=None,
+                                 epochs=self.n_epochs,
+                                 batch_size=self.batch_size,
+                                 verbose=self.verbose,
+                                 callbacks=self.callbacks)
 
-def _fit_convolutional_network(state, ):
+    def predict(self, reviews):
+        return self.model.predict(reviews)
+
 
 class NeuralNetworkClassifier(object):
 
     def __init__(self, input_shape,
-                 n_filters=None,
-                 kernel_size=None,
-                 padding=None,
-                 activation
-                 ):
+                 n_filters,
+                 kernel_size,
+                 padding,
+                 activation):
 
         self.model = Sequential()
         self.model.add(Conv1D(filters=90,
@@ -931,7 +985,7 @@ class NeuralNetworkClassifier(object):
         self.model.add(MaxPooling1D(pool_size=500, strides = 2))
         self.model.add(Flatten())
         self.model.add(Dense(250, activation='relu', use_bias = True))
-        self.model.add(Dense(1, activation='sigmoid', use_bias= True)) 
+        self.model.add(Dense(1, activation='sigmoid', use_bias= True))
         self.model.compile(loss='binary_crossentropy', optimizer=Adam(lr=0.0021), metrics=['accuracy'])
         print(model.summary())
 
@@ -1100,4 +1154,5 @@ def main():
 
 
 if __name__ == '__main__':
-    cProfile.run('main()')
+    # cProfile.run('main()')
+    main()
