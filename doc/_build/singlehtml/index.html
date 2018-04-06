@@ -1,0 +1,176 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Bag of Words 0.1 documentation</title>
+    <link rel="stylesheet" href="_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    './',
+        VERSION:     '0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true,
+        SOURCELINK_SUFFIX: '.txt'
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head>
+  <body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="welcome-to-bag-of-words-s-documentation">
+<h1>Welcome to Bag of Words’s documentation!<a class="headerlink" href="#welcome-to-bag-of-words-s-documentation" title="Permalink to this headline">¶</a></h1>
+<div class="toctree-wrapper compound">
+</div>
+</div>
+<div class="section" id="some-section">
+<h1>Some section<a class="headerlink" href="#some-section" title="Permalink to this headline">¶</a></h1>
+<p>Hello world!</p>
+<dl class="class">
+<dt id="bagofwords.ReviewPreprocessor">
+<em class="property">class </em><code class="descclassname">bagofwords.</code><code class="descname">ReviewPreprocessor</code><a class="headerlink" href="#bagofwords.ReviewPreprocessor" title="Permalink to this definition">¶</a></dt>
+<dd><p><a class="reference internal" href="#bagofwords.ReviewPreprocessor" title="bagofwords.ReviewPreprocessor"><code class="xref py py-class docutils literal"><span class="pre">ReviewPreprocessor</span></code></a> is an utility class for processing raw HTML
+text into segments for further learning.</p>
+<dl class="staticmethod">
+<dt id="bagofwords.ReviewPreprocessor.review2sentences">
+<em class="property">static </em><code class="descname">review2sentences</code><span class="sig-paren">(</span><em>review: str</em>, <em>remove_stopwords: bool = False</em><span class="sig-paren">)</span> &#x2192; typing.Iterable[typing.List[str]]<a class="headerlink" href="#bagofwords.ReviewPreprocessor.review2sentences" title="Permalink to this definition">¶</a></dt>
+<dd><p>Given a review, splits it into sentences where each sentence
+is a list of words.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>review</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.6)"><em>str</em></a>) – The review as raw HTML.</li>
+<li><strong>remove_stopwords</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.6)"><em>bool</em></a>) – Whether to remove the stopwords.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first">Review split into sentences.</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body"><p class="first last">Iterable[List[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.6)">str</a>]]</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="staticmethod">
+<dt id="bagofwords.ReviewPreprocessor.review2wordlist">
+<em class="property">static </em><code class="descname">review2wordlist</code><span class="sig-paren">(</span><em>review: str</em>, <em>remove_stopwords: bool = False</em><span class="sig-paren">)</span> &#x2192; typing.List[str]<a class="headerlink" href="#bagofwords.ReviewPreprocessor.review2wordlist" title="Permalink to this definition">¶</a></dt>
+<dd><p>Given a review, parses it as HTML, removes all URLs and
+non-alphabetical characters, and optionally removes the stopwords. The
+review is then split into lowercase words and the resulting list is
+returned.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>review</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.6)"><em>str</em></a>) – The review as raw HTML.</li>
+<li><strong>remove_stopwords</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.6)"><em>bool</em></a>) – Whether to remove the stopwords.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first">Review split into words.</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body"><p class="first last">List[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.6)">str</a>]</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="function">
+<dt id="bagofwords.clean_up_reviews">
+<code class="descclassname">bagofwords.</code><code class="descname">clean_up_reviews</code><span class="sig-paren">(</span><em>reviews: typing.Iterable[str], remove_stopwords: bool = True, clean_file: typing.Union[str, NoneType] = None</em><span class="sig-paren">)</span> &#x2192; numpy.ndarray<a class="headerlink" href="#bagofwords.clean_up_reviews" title="Permalink to this definition">¶</a></dt>
+<dd><p>Given an list of reviews, either loads pre-computed clean reviews from
+<code class="docutils literal"><span class="pre">clean_file</span></code> or applies <a class="reference internal" href="#bagofwords.ReviewPreprocessor.review2wordlist" title="bagofwords.ReviewPreprocessor.review2wordlist"><code class="xref py py-func docutils literal"><span class="pre">ReviewPreprocessor.review2wordlist()</span></code></a> to
+each review and converts it into an <code class="xref py py-class docutils literal"><span class="pre">numpy.ndarray</span></code>. Also, if
+<code class="docutils literal"><span class="pre">clean_file</span></code> is not <code class="docutils literal"><span class="pre">None</span></code> clean reviews are saved to it.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>reviews</strong> (<em>Iterable</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.6)"><em>str</em></a><em>]</em>) – Reviews to clean up.</li>
+<li><strong>remove_stopwords</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.6)"><em>bool</em></a>) – Whether to remove the stopwords.</li>
+<li><strong>clean_file</strong> (<em>Optional</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.6)"><em>str</em></a><em>]</em>) – File where clean reviews are stored.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first">Iterable of clean reviews.</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body"><p class="first last">Iterable[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.6)">str</a>]</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</div>
+<div class="section" id="indices-and-tables">
+<h1>Indices and tables<a class="headerlink" href="#indices-and-tables" title="Permalink to this headline">¶</a></h1>
+<ul class="simple">
+<li><a class="reference internal" href="genindex.html"><span class="std std-ref">Index</span></a></li>
+<li><a class="reference internal" href="py-modindex.html"><span class="std std-ref">Module Index</span></a></li>
+<li><a class="reference internal" href="search.html"><span class="std std-ref">Search Page</span></a></li>
+</ul>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper"><div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html#document-index">Documentation overview</a><ul>
+  </ul></li>
+</ul>
+</div>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2018, Andre, Johanna, Pauline, Robert, Sophie, Tom.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.6.6+</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.10</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>
