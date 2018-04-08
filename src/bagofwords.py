@@ -53,6 +53,7 @@ from keras.layers import Activation
 from keras.optimizers import SGD
 from keras.layers import Dense
 from keras.utils import np_utils
+from keras.callbacks import TensorBoard
 import numpy as np
 import os
 
@@ -389,8 +390,13 @@ def run_one_fold(train_data: Tuple[Type[np.ndarray], Type[np.ndarray]],
     train_labels = np_utils.to_categorical(train_labels,2)
     test_labels = np_utils.to_categorical(test_labels,2)
 
+   # tbCallBack = TensorBoard(log_dir=str(_PROJECT_ROOT / 'models/{}'.format(time.time())), histogram_freq=10,
+    #                         write_graph=True, write_images=True)
 
-    classifier = _fit_sff_network(classifier, train_features, train_labels)
+    classifier.model.fit(train_features, train_labels,
+                         nb_epoch=200, batch_size=100, validation_data=(test_features, test_labels))
+                        # callbacks=[tbCallBack])
+
     logging.info('Predicting test labels...')
     loss, accuracy = _predict_sff(classifier, test_features, test_labels)
     return loss, accuracy
@@ -757,12 +763,16 @@ class SimpleFeedForwardNN(object):
         self.model.add(Dense(2))
         self.model.add(Activation("softmax"))
 
+        sgd = SGD(lr=0.01)
+
+        self.model.compile(loss="binary_crossentropy", optimizer=sgd, metrics=["accuracy"])
+
 
 def _fit_sff_network(sff, train_data_features, train_sentiments):
 
    sgd = SGD(lr=0.01)
    sff.model.compile(loss="binary_crossentropy",optimizer=sgd, metrics=["accuracy"])
-   sff.model.fit(train_data_features, train_sentiments, nb_epoch=50, batch_size=128)
+   sff.model.fit(train_data_features, train_sentiments, nb_epoch=50, batch_size=100)
    return sff
 
 def _predict_sff(classifier, test_data_features, test_sentiments):
