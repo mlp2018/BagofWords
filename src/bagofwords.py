@@ -38,6 +38,7 @@ from gensim.models import Word2Vec, KeyedVectors
 from keras.models import Sequential
 from keras.layers import Dense
 from keras.layers import Flatten
+from keras.layers import Embedding
 from keras.layers.convolutional import Conv1D
 from keras.layers.convolutional import MaxPooling1D
 from keras import regularizers
@@ -48,7 +49,7 @@ import nltk.corpus
 import nltk.tokenize
 import numpy as np
 import pandas as pd
-# from scipy.sparse import csr_matrix
+from scipy.sparse import csc_matrix
 import sklearn
 from sklearn.cluster import KMeans, MiniBatchKMeans
 from sklearn.ensemble import RandomForestClassifier
@@ -110,18 +111,18 @@ _DEFAULT_CONFIG = {
     # High-level algorithm specific options.
     'run': {
         # Type of the run, one of {'optimization', 'submission'}
-        'type':             'optimization',
+        'type':             'submission',
         # How many splits to use in the StratifiedKFold
         'number_splits':    3,
         # When preprocessing the reviews, should we remove the stopwords?
-        'remove_stopwords': False,
+        'remove_stopwords': True,
         # Should we cache the preprocessed reviews?
         'cache_clean':      True,
         # After the running the StratifiedKFold on the 90%, should we test the
         # result on the remaining 10?
-        'test_10':          False,
+        'test_10':          True,
         # Random seed used for the 90-10 split.
-        'random':           42,
+        'random':           54,
         # How many percent of the data should be left out for testing? I.e.
         # what is "10" in the 90-10 split.
         'alpha':            0.1,
@@ -130,7 +131,7 @@ _DEFAULT_CONFIG = {
     'vectorizer': 'word2vec',
     # Type of the classifier to use, one of
     # {'random-forest', 'logistic-regression'}
-    'classifier': 'logistic-regression',
+    'classifier': 'neural-network', # 'logistic-regression',
     # Options specific to the bagofwords vectorizer.
     'bagofwords': {},
     # Options specific to the word2vec vectorizer.
@@ -147,7 +148,7 @@ _DEFAULT_CONFIG = {
         # Retrain the model every time?
         'retrain':    False,
         # Averaging strategy to use, one of {'average', 'k-means'}
-        'strategy':   'k-means',
+        'strategy':   'dummy',
     },
     # Options specific to the random forest classifier.
     'random-forest': {
@@ -169,7 +170,6 @@ _DEFAULT_CONFIG = {
         'random_state':      None,
     },
     'neural-network': {
-        'needs_input_shape':  True,
         'architecture':       'convolutional',
     },
     'convolutional': {
@@ -679,7 +679,7 @@ class KMeansAverager(object):
     # https://github.com/mlp2018/BagofWords/issues/16. Is this the right
     # way to go?
     def transform(self, reviews: np.ndarray,
-                  model: Dict[str, np.ndarray]) -> np.ndarray:
+                  model: KeyedVectors) -> np.ndarray:
         """
         Given a list of reviews and a word2vec mapping, transforms all reviews
         to the bag of centroids representation.
@@ -692,7 +692,7 @@ class KMeansAverager(object):
                         representation.
         """
         assert type(reviews) is np.ndarray
-        assert isinstance(model, Dict)
+        assert isinstance(model, KeyedVectors)
         (num_reviews,) = reviews.shape
         logging.info('Creating bags of centroids...')
         bags = np.zeros((num_reviews, self.kmeans.n_clusters), dtype='float32')
@@ -748,11 +748,10 @@ class DummyAverager(object):
                          model])
 
     def transform(self, reviews, model):
-        return np.array([DummyAverager._review2tensor(review, model)
-                         for review in reviews])
+        return reviews, model
 
     def fit_transform(self, reviews, model):
-        return self.transform(reviews, model)
+        return reviews, model
 
 
 class Word2VecVectorizer(object):
@@ -932,18 +931,25 @@ class ConvNNClassifier(object):
         self.n_epochs = n_epochs
         self.verbose = verbose
         self.callbacks = [EarlyStopping(patience=1)]
+        self.max_words = 500
         self.model = None
         self.history = None
 
-    def _construct(self, shape):
-        (n_words, n_features) = shape
+    def _construct(self, word2vec):
+        (n_words, n_features) = word2vec.vectors.shape
         model = Sequential()
+        layer = Embedding(
+                    input_dim=n_words, output_dim=n_features,
+                    input_length=self.max_words, weights=[word2vec.vectors],
+                    trainable=False
+        )
+        model.add(layer)
         model.add(Conv1D(filters=self.n_filters,
                          kernel_size=self.kernel_size,
                          padding='same',
                          activation='relu',
                          use_bias=self.use_bias))
-        model.add(MaxPooling1D(pool_size=n_words, strides=2))
+        model.add(MaxPooling1D(pool_size=self.max_words, strides=2))
         model.add(Flatten())
         model.add(Dense(self.n_units, activation='relu', use_bias=self.use_bias))
         model.add(Dense(1, activation='sigmoid', use_bias=self.use_bias))
@@ -951,21 +957,43 @@ class ConvNNClassifier(object):
         logging.info(model.summary())
         return model
 
-    def fit(self, reviews, labels):
-        print(reviews)
-        print(reviews.shape)
-        print(reviews.dtype)
-        (n_words, n_features) = reviews[0].shape
-        self.model = self._construct((n_words, n_features))
-        self.history = model.fit(x=reviews, y=labels,
-                                 validation_data=None,
-                                 epochs=self.n_epochs,
-                                 batch_size=self.batch_size,
-                                 verbose=self.verbose,
-                                 callbacks=self.callbacks)
+    @staticmethod
+    def _review_to_tensor(review, word2vec, max_words):
+        x = np.zeros((max_words,)) # ?????
+        for (i, word) in enumerate(review.split()):
+            if i >= max_words:
+                break
+            if word in word2vec:
+                x[i] = word2vec.vocab[word].index
+        return x
 
-    def predict(self, reviews):
-        return self.model.predict(reviews)
+    def fit(self, train_data, labels):
+        reviews, word2vec = train_data
+        logging.info('Converting reviews to tensors...')
+        reviews = np.array(list(map(
+            lambda x: ConvNNClassifier._review_to_tensor(x, word2vec,
+                                                         self.max_words),
+            reviews)))
+        logging.info('Done!')
+        self.model = self._construct(word2vec)
+        self.history = self.model.fit(x=reviews, y=labels,
+                                      validation_data=None,
+                                      epochs=self.n_epochs,
+                                      batch_size=self.batch_size,
+                                      verbose=self.verbose,
+                                      callbacks=self.callbacks)
+        return self
+
+    def predict(self, train_data):
+        reviews, word2vec = train_data
+        (n_reviews,) = reviews.shape
+        logging.info('Converting reviews to tensors...')
+        reviews = np.array(list(map(
+            lambda x: ConvNNClassifier._review_to_tensor(x, word2vec,
+                                                         self.max_words),
+            reviews)))
+        logging.info('Done!')
+        return self.model.predict(reviews).reshape((n_reviews,))
 
 
 class NeuralNetworkClassifier(object):
