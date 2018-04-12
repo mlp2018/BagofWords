@@ -35,40 +35,34 @@ import warnings
 
 from bs4 import BeautifulSoup
 from gensim.models import Word2Vec, KeyedVectors
-from keras.models import Sequential
-from keras.layers import Dense
-from keras.layers import Flatten
-from keras.layers import Embedding
+from keras.callbacks import EarlyStopping
+from keras.layers import Dense, Embedding, Flatten
 from keras.layers.convolutional import Conv1D
 from keras.layers.convolutional import MaxPooling1D
-from keras import regularizers
-from keras import optimizers
-from keras.optimizers import Adam
-from keras.callbacks import EarlyStopping
+from keras.models import Sequential
+from keras.optimizers import Adam, SGD
 import nltk.corpus
 import nltk.tokenize
 import numpy as np
 import pandas as pd
-from scipy.sparse import csc_matrix
+# from scipy.sparse import csc_matrix
 import sklearn
-from sklearn.cluster import KMeans, MiniBatchKMeans
+from sklearn.cluster import MiniBatchKMeans
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.naive_bayes import MultinomialNB, BernoulliNB
-# from sklearn.feature_extraction.text import VectorizerMixin
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics import roc_auc_score
-import tensorflow as tf
 
-import cProfile
+# import cProfile
 
 
 def _get_sklearn_version() -> Tuple[int, int, int]:
     """
     Returns the version of scikit-learn as a tuple.
     """
-    (a, b, c) = sklearn.__version__.split('.')
-    return int(a), int(b), int(c)
+    (release, major, minor) = sklearn.__version__.split('.')
+    return int(release), int(major), int(minor)
 
 
 if _get_sklearn_version() >= (0, 19, 0):
@@ -77,8 +71,6 @@ if _get_sklearn_version() >= (0, 19, 0):
 else:  # We have an old version of sklearn...
     from sklearn.cross_validation import StratifiedKFold
     from sklearn.cross_validation import StratifiedShuffleSplit
-
-import gensim
 
 
 def _get_current_file_dir() -> Path:
@@ -111,7 +103,7 @@ _DEFAULT_CONFIG = {
     # High-level algorithm specific options.
     'run': {
         # Type of the run, one of {'optimization', 'submission'}
-        'type':             'submission',
+        'type':             'optimization',
         # How many splits to use in the StratifiedKFold
         'number_splits':    3,
         # When preprocessing the reviews, should we remove the stopwords?
@@ -120,7 +112,7 @@ _DEFAULT_CONFIG = {
         'cache_clean':      True,
         # After the running the StratifiedKFold on the 90%, should we test the
         # result on the remaining 10?
-        'test_10':          True,
+        'test_10':          False,
         # Random seed used for the 90-10 split.
         'random':           54,
         # How many percent of the data should be left out for testing? I.e.
@@ -130,24 +122,24 @@ _DEFAULT_CONFIG = {
     # Type of the vectorizer, one of {'word2vec', 'bagofwords'}
     'vectorizer': 'word2vec',
     # Type of the classifier to use, one of
-    # {'random-forest', 'logistic-regression'}
-    'classifier': 'neural-network', # 'logistic-regression',
+    # {'random-forest', 'logistic-regression', 'feed-forward', 'convolutional'}
+    'classifier': 'convolutional',
     # Options specific to the bagofwords vectorizer.
     'bagofwords': {},
     # Options specific to the word2vec vectorizer.
     'word2vec': {
-        # File name where to save/read the model to/from. Dictionary file is
-        # computes from it as
-        # dictionary_file = model_file + '.dict.npy'
+        # File name where to save/read the model to/from.
         'model_file': str(_PROJECT_ROOT / 'data'
                           / 'GoogleNews-vectors-negative300.bin'),
+        # File name where to save/read the "compact" version to/from.
         'cache_file': str(_PROJECT_ROOT / 'data'
                           / 'GoogleNews-vectors-negative300.compact.bin'),
-        # 'model_file': str(_PROJECT_ROOT / 'w2v.bin'),
-        # 'cache_file': str(_PROJECT_ROOT / 'w2v.cache'),
         # Retrain the model every time?
         'retrain':    False,
-        # Averaging strategy to use, one of {'average', 'k-means'}
+        # Averaging strategy to use, one of {'average', 'k-means', 'dummy'}
+        # NOTE: Random Forest, Logistic Regression, and Feed Forward NN work
+        # with 'average' and 'k-means'; Convolutional NN works __only__ with
+        # 'dummy'.
         'strategy':   'dummy',
     },
     # Options specific to the random forest classifier.
@@ -169,21 +161,30 @@ _DEFAULT_CONFIG = {
         'class_weight':      None,
         'random_state':      None,
     },
-    'neural-network': {
-        'architecture':       'convolutional',
-    },
+    # Options specific to Andre's convolutional NN classifier.
     'convolutional': {
-        'n_units': 250,
-        'n_filters': 90,
-        'n_epochs': 4,
-        'verbose': 2,
-        'kernel_size': 6,
-        'batch_size': 128,
-        'use_bias': True,
-        'loss': 'binary_crossentropy',
-        'optimizer': Adam(lr=0.0021),
-        'metrics': ['accuracy'],
+        'n_units':      250,
+        'n_filters':    90,
+        'n_epochs':     4,
+        'verbose':      2,
+        'kernel_size':  6,
+        'batch_size':   128,
+        'use_bias':     True,
+        'loss':         'binary_crossentropy',
+        'optimizer':    Adam(lr=0.0021),
+        'metrics':      ['accuracy'],
     },
+    # Options specific to feed forward neural network classifier.
+    'feed-forward': {
+        'n_hidden_units1': 100,
+        'n_hidden_units2': 100,
+        'batch_size':      32,
+        'n_epochs':        200,
+        'loss':            'binary_crossentropy',
+        'optimizer':       SGD(lr=0.01),
+        'metrics':         ['accuracy'],
+    },
+    # Dummy entry for dummy averager :)
     'dummy': {},
     # Options specific to the "average" averaging strategy.
     'average': {},
@@ -202,8 +203,10 @@ _DEFAULT_CONFIG = {
 # NOTE: See _DEFAULT_CONFIG for the format of the configuratio options.
 try:
     from conf import conf
+    print("Imported local config file.", file=sys.stderr)
 except ImportError:
     conf = _DEFAULT_CONFIG
+    print("Used the default config.", file=sys.stderr)
 
 
 # TODO: Fix this.
@@ -213,7 +216,6 @@ warnings.filterwarnings("ignore", category=UserWarning, module='bs4')
 
 
 def _read_data_from(path: str) -> pd.DataFrame:
-    assert type(path) == str
     logging.info('Reading data from {!r}...'.format(path))
     return pd.read_csv(path, header=0, delimiter='\t', quoting=3)
 
@@ -229,25 +231,19 @@ class ReviewPreprocessor(object):
 
     @staticmethod
     def _striphtml(text: str) -> str:
-        assert type(text) == str
-
-        text = re.sub('(www.|http[s]?:\/)(?:[a-zA-Z]|[0-9]|[$-_@.&+]'
-                      '|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+',
-                      '', text)
+        text = re.sub(r'(www.|http[s]?:\/)(?:[a-zA-Z]|[0-9]|[$-_@.&+]'
+                      r'|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+',
+                      r'', text)
         text = BeautifulSoup(text, 'html.parser').get_text()
         return text
 
     @staticmethod
     def _2wordlist(text: str, remove_stopwords: bool = False) -> List[str]:
-        assert type(text) == str
-        assert type(remove_stopwords) == bool
-
         text = re.sub('[^a-zA-Z]', ' ', text)
         words = text.lower().split()
         if remove_stopwords:
             words = [w for w in words if w not in
                      ReviewPreprocessor._stopwords]
-        assert type(words) == list
         return words
 
     @staticmethod
@@ -264,9 +260,6 @@ class ReviewPreprocessor(object):
         :return:                      Review split into words.
         :rtype:                       List[str]
         """
-        assert type(review) == str
-        assert type(remove_stopwords) == bool
-
         return ReviewPreprocessor._2wordlist(
             ReviewPreprocessor._striphtml(review),
             remove_stopwords=remove_stopwords)
@@ -283,8 +276,6 @@ class ReviewPreprocessor(object):
         :return:                      Review split into sentences.
         :rtype:                       Iterable[List[str]].
         """
-        assert type(review) == str
-        assert type(remove_stopwords) == bool
         raw_sentences = ReviewPreprocessor._tokenizer.tokenize(
             ReviewPreprocessor._striphtml(review))
         return map(
@@ -311,9 +302,6 @@ def clean_up_reviews(reviews: Iterable[str],
     :return:                      Iterable of clean reviews.
     :rtype:                       Iterable[str]
     """
-    assert isinstance(reviews, Iterable)
-    assert type(remove_stopwords) is bool
-    assert clean_file is None or type(clean_file) is str
     if clean_file is not None and Path(clean_file).exists():
         return _read_data_from(clean_file)['review'].values
     logging.info('Cleaning and parsing the reviews...')
@@ -346,8 +334,6 @@ def reviews2sentences(reviews: Iterable[str],
     :rtype:                       Iterable[List[str]]
     """
     logging.info('Splittings reviews into sentences...')
-    assert isinstance(reviews, Iterable)
-    assert type(remove_stopwords) is bool
 
     class R2SIter:
         def __init__(self, xs, remove):
@@ -362,33 +348,32 @@ def reviews2sentences(reviews: Iterable[str],
     return R2SIter(reviews, remove_stopwords)
 
 
-def submission_run(reviews: Type[np.ndarray],
-                   sentiments: Type[np.ndarray],
-                   test_reviews: Type[np.ndarray],
-                   ids,
+def submission_run(reviews: np.ndarray,
+                   sentiments: np.ndarray,
+                   test_reviews: np.ndarray,
+                   ids: np.ndarray,
                    mk_vectorizer: Callable[[], Any],
                    mk_classifier: Callable[[], Any],
-                   prediction_file: str) -> Type[np.array]:
+                   prediction_file: str) -> np.ndarray:
     """
-    :param ids: Array of review identifiers.
-    :type ids: 'numpy.ndarray' of shape ``(N,)``
-    :param reviews: Array of raw reviews texts.
-    :type reviews: 'numpy.ndarray' of shape ``(N,)``
-    :param sentiments: Array of review sentiments.
-    :type sentiments: 'numpy.ndarray' of shape ``(N,)``
-    :param test_reviews: Array of test review texts.
-    :type test_reviews: 'numpy.ndarray' of shape ``(N,)``
-    :param mk_vectorizer: Factory function to create a new vectorizer.
-    :type mk_vectorizer: Callable[[], Vectorizer]
-    :type mk_classifier: Callable[[], Classifier]
-    :param prediction_file
+    :param reviews:         Array of raw reviews texts.
+    :type reviews:          'numpy.ndarray' of shape ``(N,)`` of type ``str``
+    :param sentiments:      Array of review sentiments.
+    :type sentiments:       'numpy.ndarray' of shape ``(N,)`` of type ``bool``
+    :param test_reviews:    Array of test review texts.
+    :type test_reviews:     'numpy.ndarray' of shape ``(N,)`` of type ``str``
+    :param ids:             Array of review identifiers.
+    :type ids:              'numpy.ndarray' of shape ``(N,)`` of type ``str``
+    :param mk_vectorizer:   Factory function to create a new vectorizer.
+    :type mk_vectorizer:    Callable[[], Vectorizer]
+    :param mk_classifier:   Factory function to create a new classifier.
+    :type mk_classifier:    Callable[[], Classifier]
+    :param prediction_file: File where the predicted sentiments are saved to.
+    :type prediction_file:  str
     """
-
-    score, prediction = run_one_fold((reviews, sentiments),
-                                     test_reviews,
-                                     mk_vectorizer(),
-                                     mk_classifier())
-
+    _, prediction = run_one_fold(
+        (reviews, sentiments), test_reviews, mk_vectorizer(),
+        mk_classifier())
     logging.info('Saving all predicted sentiments to {!r}...'
                  .format(prediction_file))
     pd.DataFrame(data={'id': ids, 'sentiment': prediction}) \
@@ -404,10 +389,10 @@ def bookkeeping(reviews: Type[np.ndarray],
         .to_csv(wrong_prediction_file, index=False, quoting=3, escapechar='\\')
 
 
-def run_one_fold(train_data: Tuple[Type[np.ndarray], Type[np.ndarray]],
-                 test_data: Tuple[Type[np.ndarray], Type[np.ndarray]],
+def run_one_fold(train_data: Tuple[np.ndarray, np.ndarray],
+                 test_data: Tuple[np.ndarray, np.ndarray],
                  vectorizer: Any, classifier: Any) \
-        -> Tuple[float, Type[np.ndarray]]:
+        -> Tuple[float, np.ndarray]:
     """
     Given some data to train on and some data to test on, runs the whole
     feature extraction + classification procedure, computes the ROC AUC score
@@ -441,11 +426,10 @@ def run_one_fold(train_data: Tuple[Type[np.ndarray], Type[np.ndarray]],
     return score, prediction
 
 
-def split_90_10(data: Tuple[Type[np.ndarray], Type[np.ndarray]],
-                alpha: float,
-                seed: int = 42) \
-        -> Tuple[Tuple[Type[np.ndarray], Type[np.ndarray]],
-                 Tuple[Type[np.ndarray], Type[np.ndarray]]]:
+def split_90_10(data: Tuple[np.ndarray, np.ndarray],
+                alpha: float, seed: int = 42) \
+        -> Tuple[Tuple[np.ndarray, np.ndarray],
+                 Tuple[np.ndarray, np.ndarray]]:
     """
     Despite the very descriptive name this function does the ``1-alpha`` -
     ``alpha`` split rather than the ``90%`` - ``10%`` one.
@@ -456,7 +440,7 @@ def split_90_10(data: Tuple[Type[np.ndarray], Type[np.ndarray]],
     :return: ``((reviews to train on, sentiments to train on),
                 (reviews to test on, sentiments to test on))``.
     """
-    assert 0 < alpha and alpha < 1
+    assert alpha > 0 and alpha < 1
     reviews, labels = data
     train_index = None
     test_index = None
@@ -475,13 +459,12 @@ def split_90_10(data: Tuple[Type[np.ndarray], Type[np.ndarray]],
     return (x_train, y_train), (x_test, y_test)
 
 
-def run_a_couple_of_folds(data: Tuple[Type[np.ndarray], Type[np.ndarray]],
+def run_a_couple_of_folds(data: Tuple[np.ndarray, np.ndarray],
                           mk_vectorizer: Callable[[], Any],
                           mk_classifier: Callable[[], Any],
                           number_splits: int) \
         -> Tuple[float, float, np.ndarray]:
     # TODO: Write docs for this function.
-
     reviews, labels = data
     predictions = np.zeros(labels.shape, dtype=np.bool_)
     scores = np.zeros((number_splits,), dtype=np.float32)
@@ -510,13 +493,12 @@ def run_a_couple_of_folds(data: Tuple[Type[np.ndarray], Type[np.ndarray]],
     return score, score_std, wrong_index
 
 
-# TODO: Split this messy function into smaller ones.
-def optimization_run(reviews: Type[np.ndarray],
-                     sentiments: Type[np.ndarray],
+def optimization_run(reviews: np.ndarray,
+                     sentiments: np.ndarray,
                      mk_vectorizer: Callable[[], Any],
                      mk_classifier: Callable[[], Any],
-                     conf,
-                     wrong_prediction_file: str) -> Type[np.array]:
+                     conf: Dict[str, Any],
+                     wrong_prediction_file: str) -> np.ndarray:
     """
     This is basically the main function.
 
@@ -536,12 +518,12 @@ def optimization_run(reviews: Type[np.ndarray],
                                    conf['alpha'], conf['random'])
     reviews_90, _ = data_90
     reviews_10, labels_10 = data_10
-    score, sigma, wrong_idx = run_a_couple_of_folds(
+    _, _, wrong_idx = run_a_couple_of_folds(
         data_90, mk_vectorizer, mk_classifier, conf['number_splits'])
     wrong_reviews = reviews_90[wrong_idx]
     if conf['test_10']:
         logging.info('Training on 90% and testing on 10%...')
-        score_10, prediction_10 = run_one_fold(
+        _, prediction_10 = run_one_fold(
             data_90, data_10, mk_vectorizer(), mk_classifier())
         wrong_idx_10 = np.where(prediction_10 != labels_10)
         wrong_reviews = np.concatenate(
@@ -562,9 +544,10 @@ class SimpleAverager(object):
         pass
 
     @staticmethod
-    def _make_avg_feature_vector(
-        words: str, known_words: KeyedVectors,
-            average_vector: Optional[np.ndarray] = None) -> Type[np.ndarray]:
+    def _make_avg_feature_vector(words: str,
+                                 known_words: KeyedVectors,
+                                 average_vector: Optional[np.ndarray] = None) \
+            -> np.ndarray:
         """
         Given a list of words, returns the their average.
 
@@ -577,9 +560,6 @@ class SimpleAverager(object):
         :return:               The average of ``words``.
         :rtype:                np.ndarray
         """
-        assert type(words) is str
-        assert isinstance(known_words, KeyedVectors)
-        assert type(average_vector) is np.ndarray
         word_count = sum(
             1 for _ in map(lambda x: np.add(average_vector, known_words[x],
                                             out=average_vector),
@@ -589,22 +569,8 @@ class SimpleAverager(object):
 
     def transform(self, reviews: np.ndarray, model: KeyedVectors) \
             -> np.ndarray:
-        """
-        Given a list of reviews and a dictionary of known words, returns an
-        array of average feature vectors.
-
-        :param reviews: Reviews to transform.
-        :type reviews:  np.ndarray
-        :param model:   Dictionary of known words.
-        :type model:    Dict[str, np.ndarray]
-        :return:        Array of average feature vectors.
-        :rtype:         np.ndarray
-        """
-        assert type(reviews) is np.ndarray
-        assert isinstance(model, KeyedVectors)
-        # don't know how to do that properly
-        # number_features = len(model['dog'])
-        (_,number_features) = model.syn0.shape
+        # TODO: Docs
+        (_, number_features) = model.syn0.shape
         (number_reviews,) = reviews.shape
         feature_vectors = np.zeros(
             (number_reviews, number_features), dtype='float32')
@@ -616,7 +582,7 @@ class SimpleAverager(object):
                 review, model, vector)
         return feature_vectors
 
-    def fit_transform(self, reviews: np.ndarray, model: Dict[str, np.ndarray])\
+    def fit_transform(self, reviews: np.ndarray, model: KeyedVectors)\
             -> np.ndarray:
         """
         :py:class:`SimpleAverager` has no state, and :py:func:`fit_transform`
@@ -631,10 +597,8 @@ class KMeansAverager(object):
     of word2vec vectors to a single one.
     """
 
-    def __init__(self, number_clusters_frac: float = None,
-                 warn_on_missing: bool = None, **kwargs: dict) -> None:
-        assert number_clusters_frac is not None
-        assert warn_on_missing is not None
+    def __init__(self, number_clusters_frac: float,
+                 warn_on_missing: bool, **kwargs: dict) -> None:
         self.number_clusters_frac = number_clusters_frac
         self.warn_on_missing = warn_on_missing
         self.kmeans_args = kwargs
@@ -642,9 +606,10 @@ class KMeansAverager(object):
         self.word2centroid = None
 
     @staticmethod
-    def _make_bag_of_centroids(
-        words: Iterable[str], word2centroid: Dict[str, int],
-        bag_of_centroids: np.ndarray, warn_on_missing: bool = False) \
+    def _make_bag_of_centroids(words: Iterable[str],
+                               word2centroid: Dict[str, int],
+                               bag_of_centroids: np.ndarray,
+                               warn_on_missing: bool = False) \
             -> np.ndarray:
         """
         Given a stream of words and a mapping of words to centroid indices,
@@ -662,10 +627,6 @@ class KMeansAverager(object):
         :return:                 Bag of centroids representation of ``words``.
         :rtype:                  np.ndarray
         """
-        assert isinstance(words, Iterable)
-        assert isinstance(word2centroid, Dict)
-        assert type(bag_of_centroids) is np.ndarray
-        assert type(warn_on_missing) is bool
         for word in words:
             i = word2centroid.get(word)
             if i is not None:
@@ -691,8 +652,6 @@ class KMeansAverager(object):
         :return:        Array of reviews in the "bag of centroids"
                         representation.
         """
-        assert type(reviews) is np.ndarray
-        assert isinstance(model, KeyedVectors)
         (num_reviews,) = reviews.shape
         logging.info('Creating bags of centroids...')
         bags = np.zeros((num_reviews, self.kmeans.n_clusters), dtype='float32')
@@ -715,13 +674,10 @@ class KMeansAverager(object):
         :return:        Array of reviews in the "bag of centroids"
                         representation.
         """
-        assert type(reviews) is np.ndarray
-        assert isinstance(model, KeyedVectors)
         (num_reviews,) = reviews.shape
         num_clusters = int(self.number_clusters_frac * num_reviews)
         self.kmeans = MiniBatchKMeans(
             n_clusters=num_clusters, **self.kmeans_args)
-
         vectors = model.syn0
         logging.info('Running k-means + labeling...')
         start = time.time()
@@ -741,11 +697,6 @@ class DummyAverager(object):
 
     def __init__(self):
         pass
-
-    @staticmethod
-    def _review2tensor(review, model):
-        return np.array([model[word] for word in review.split() if word in
-                         model])
 
     def transform(self, reviews, model):
         return reviews, model
@@ -774,11 +725,6 @@ class Word2VecVectorizer(object):
                  cache_file: Optional[str] = None,
                  retrain: bool = False,
                  train_data: Optional[Iterable[str]] = None) -> None:
-        assert type(strategy) is str
-        assert type(model_file) is str
-        assert type(averager_args) is dict
-        assert cache_file is None or type(cache_file) is str
-        assert train_data is None or isinstance(train_data, Iterable)
         self.averager = \
             Word2VecVectorizer._make_averager_fn[strategy](**averager_args)
         self.model = None
@@ -805,8 +751,6 @@ class Word2VecVectorizer(object):
     @staticmethod
     def _retrain(train_data: Iterable[str], model_file: str, **model_args) \
             -> Word2Vec:
-        assert isinstance(train_data, Iterable)
-        assert type(model_file) is str
         # Touch the model_file _before_ we start training so that if the path
         # is wrong we don't wait hours for nothing...
         Path(model_file).touch()
@@ -828,9 +772,6 @@ class Word2VecVectorizer(object):
     @staticmethod
     def _compress_keyed_vectors(model: KeyedVectors, reviews: np.ndarray,
                                 cache_file: Optional[str] = None) -> None:
-        assert isinstance(model, KeyedVectors)
-        assert type(reviews) is np.ndarray
-        assert cache_file is None or type(cache_file) is str
         required_words = set(word for review in reviews
                              for word in review.split())
         for (i, word) in enumerate(model.index2word):
@@ -854,7 +795,8 @@ class Word2VecVectorizer(object):
         vocab = dict((w, update_index(model.vocab[w], i))
                      for (i, w) in enumerate(index2word))
         # Now, extract correct indices as an np.ndarray
-        indices = np.fromiter(map(lambda x: x.index, vocab.values()), dtype=int)
+        indices = np.fromiter(
+            map(lambda x: x.index, vocab.values()), dtype=int)
         # Only keep feature vectors for the words we really need.
         vectors = model.syn0[indices]
         # Do the actual update
@@ -905,15 +847,10 @@ def _make_classifier(conf):
         'naive-bayes-bagofwords': MultinomialNB,
         'naive-bayes-word2vec':   BernoulliNB,
         'random-forest':          RandomForestClassifier,
-        'neural-network':         ConvNNClassifier
+        'convolutional':          ConvNNClassifier,
+        'feed-forward':           FeedForwardNNClassifier,
     }
-    if conf['classifier'] == 'neural-network':
-        if conf['neural-network']['architecture'] == 'convolutional':
-            return ConvNNClassifier(**conf['convolutional'])
-        else:
-            assert False
-    else:
-        return _fn[conf['classifier']](**conf[conf['classifier']])
+    return _fn[conf['classifier']](**conf[conf['classifier']])
 
 
 class ConvNNClassifier(object):
@@ -938,11 +875,11 @@ class ConvNNClassifier(object):
     def _construct(self, word2vec):
         (n_words, n_features) = word2vec.vectors.shape
         model = Sequential()
-        layer = Embedding(
-                    input_dim=n_words, output_dim=n_features,
-                    input_length=self.max_words, weights=[word2vec.vectors],
-                    trainable=False
-        )
+        layer = Embedding(input_dim=n_words,
+                          output_dim=n_features,
+                          input_length=self.max_words,
+                          weights=[word2vec.vectors],
+                          trainable=False)
         model.add(layer)
         model.add(Conv1D(filters=self.n_filters,
                          kernel_size=self.kernel_size,
@@ -951,21 +888,25 @@ class ConvNNClassifier(object):
                          use_bias=self.use_bias))
         model.add(MaxPooling1D(pool_size=self.max_words, strides=2))
         model.add(Flatten())
-        model.add(Dense(self.n_units, activation='relu', use_bias=self.use_bias))
+        model.add(Dense(self.n_units,
+                        activation='relu',
+                        use_bias=self.use_bias))
         model.add(Dense(1, activation='sigmoid', use_bias=self.use_bias))
-        model.compile(loss=self.loss, optimizer=self.optimizer, metrics=self.metrics)
+        model.compile(
+            loss=self.loss, optimizer=self.optimizer, metrics=self.metrics)
         logging.info(model.summary())
         return model
 
     @staticmethod
     def _review_to_tensor(review, word2vec, max_words):
-        x = np.zeros((max_words,)) # ?????
+        tensor = np.zeros((max_words,))  # ?????
         for (i, word) in enumerate(review.split()):
+            # TODO: The following `if` is ungly, fix it please!
             if i >= max_words:
                 break
             if word in word2vec:
-                x[i] = word2vec.vocab[word].index
-        return x
+                tensor[i] = word2vec.vocab[word].index
+        return tensor
 
     def fit(self, train_data, labels):
         reviews, word2vec = train_data
@@ -996,146 +937,53 @@ class ConvNNClassifier(object):
         return self.model.predict(reviews).reshape((n_reviews,))
 
 
-class NeuralNetworkClassifier(object):
+class FeedForwardNNClassifier(object):
 
-    def __init__(self, input_shape,
-                 n_filters,
-                 kernel_size,
-                 padding,
-                 activation):
-
-        self.model = Sequential()
-        self.model.add(Conv1D(filters=90,
-                              kernel_size=6,
-                              padding='same',
-                              activation='relu',
-                              use_bias=True))
-        self.model.add(MaxPooling1D(pool_size=500, strides = 2))
-        self.model.add(Flatten())
-        self.model.add(Dense(250, activation='relu', use_bias = True))
-        self.model.add(Dense(1, activation='sigmoid', use_bias= True))
-        self.model.compile(loss='binary_crossentropy', optimizer=Adam(lr=0.0021), metrics=['accuracy'])
-        print(model.summary())
-
-
-
-
-        self.batch_size = batch_size
-        self.n_steps = n_steps
+    def __init__(self, n_hidden_units1, n_hidden_units2, batch_size,
+                 n_epochs, optimizer, loss, metrics):
         self.n_hidden_units1 = n_hidden_units1
         self.n_hidden_units2 = n_hidden_units2
-        self.n_classes = n_classes
-        self.model_description = str(n_hidden_units1) + '_' + str(n_hidden_units2)
-        self.model_dir = str(_PROJECT_ROOT / 'models' / 'nn' / self.model_description)
+        self.batch_size = batch_size
+        self.n_epochs = n_epochs
+        self.optimizer = optimizer
+        self.loss = loss
+        self.metrics = metrics
+        self.model = None
+        self.history = None
 
-    def set_up_architecture(self, train_data_features, train_sentiments):
+    def _construct(self, n_features):
+        model = Sequential()
+        model.add(Dense(self.n_hidden_units1,
+                        input_dim=n_features,
+                        activation='relu',
+                        kernel_initializer='uniform'))
+        model.add(Dense(self.n_hidden_units2,
+                        activation='relu',
+                        kernel_initializer='uniform'))
+        model.add(Dense(1, activation='sigmoid'))
+        model.compile(loss=self.loss, optimizer=self.optimizer,
+                      metrics=self.metrics)
+        logging.info(model.summary())
+        return model
 
-        # Convert the scarce scipy feature matrices to pandas dataframes
-        print(train_data_features.shape)
-        train_df = pd.DataFrame(train_data_features.toarray())
-
-        # Convert column names from numbers to strings
-        train_df.columns = train_df.columns.astype(str)
-
-        # Create feature columns which describe how to use the input
-        feat_cols = []
-        for key in train_df.keys():
-            feat_cols.append(tf.feature_column.numeric_column(key=key))
-
-        # Set up classifier with two hidden unit layers
-        classifier = tf.estimator.DNNClassifier(
-                                        feature_columns=feat_cols,
-                                        hidden_units=[self.n_hidden_units1,
-                                                      self.n_hidden_units2],
-                                        n_classes=self.n_classes,
-                                        model_dir=self.model_dir)
-
-        return train_df, classifier
-
-    def check_saves(self):
-        pass
-
-    def shape_train_input(self, features, labels, batch_size):
-        """An input function for training"""
-
-        # Convert the input to a dataset
-        dataset = tf.data.Dataset.from_tensor_slices((dict(features), labels))
-
-        # Shuffle, repeat, and batch the examples
-        dataset = dataset.shuffle(1000).repeat().batch(self.batch_size)
-
-        return dataset
-
-    def fit(self, train_data_features, train_sentiments):
-
-        train_df, new_classifier = self.set_up_architecture(train_data_features,
-                                                   train_sentiments)
-
-        self.classifier = new_classifier.train(input_fn=
-                                      lambda:self.shape_train_input(train_df,
-                                                              train_sentiments,
-                                                              self.batch_size),
-                                                              steps=self.n_steps)
-
+    def fit(self, reviews, sentiments):
+        (_, n_features) = reviews.shape
+        self.model = self._construct(n_features)
+        self.history = self.model.fit(x=reviews, y=sentiments,
+                                      epochs=self.n_epochs,
+                                      batch_size=self.batch_size)
         return self
 
-    def shape_pred_input(self, features, batch_size):
-        """An input function for evaluation or prediction"""
+    def predict(self, reviews):
+        (n_reviews, _) = reviews.shape
+        return self.model.predict(reviews).reshape((n_reviews,))
 
-        features=dict(features)
-
-        # Convert the inputs to a dataset
-        dataset = tf.data.Dataset.from_tensor_slices(features)
-
-        # Batch the examples
-        assert batch_size is not None, "batch_size must not be None"
-        dataset = dataset.batch(self.batch_size)
-
-        print(dataset)
-
-        return dataset
-
-    def predict(self, test_data_features):
-
-        # Convert the scarce scipy feature matrices to pandas dataframes
-        test_df = pd.DataFrame(test_data_features.toarray())
-
-        # Convert column names from numbers to strings
-        test_df.columns = test_df.columns.astype(str)
-
-        predictions = self.classifier.predict(input_fn=
-                                    lambda:self.shape_pred_input(test_df,
-                                                            self.batch_size))
-
-        predicted_labels = []
-
-        for pred_dict in predictions:
-            predicted_labels.append(pred_dict['class_ids'][0])
-
-        return predicted_labels
-
-
-# def set_of_words(reviews):
-#     '''
-#     create the set of words
-#     :param reviews:
-#
-#     '''
-#     split_reviews = []
-#     for review in reviews:
-#         split_reviews.append(review.split())
-#
-#     flat_word_list = [item for sublist in split_reviews for item in sublist]
-#     unique_words = set(flat_word_list)
-#
-#     return unique_words
 
 def main():
     logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s',
                         level=logging.INFO)
     if conf['run']['type'] == 'optimization':
         train_data = _read_data_from(conf['in']['labeled'])
-        ids = np.array(train_data['id'], dtype=np.unicode_)
         reviews = clean_up_reviews(train_data['review'],
                                    conf['run']['remove_stopwords'],
                                    conf['in']['clean'])
