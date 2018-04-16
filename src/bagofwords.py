@@ -39,7 +39,7 @@ import nltk.tokenize
 import numpy as np
 import pandas as pd
 # from scipy.sparse import csr_matrix
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, MiniBatchKMeans
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.naive_bayes import MultinomialNB, BernoulliNB 
@@ -53,8 +53,13 @@ else:  # We have an old version of sklearn...
     from sklearn.cross_validation import StratifiedKFold
 from sklearn.model_selection import StratifiedShuffleSplit
 
-from nltk.stem import WordNetLemmatizer
 from nltk.corpus import wordnet
+from keras.callbacks import EarlyStopping
+from keras.layers import Dense, Embedding, Flatten
+from keras.layers.convolutional import Conv1D
+from keras.layers.convolutional import MaxPooling1D
+from keras.models import Sequential
+from keras.optimizers import Adam, SGD
 
 import gensim
 
@@ -86,17 +91,18 @@ _DEFAULT_CONFIG = {
         },
     'vectorizer': {
         # Type of the vectorizer, one of {'word2vec', 'bagofwords'}
-        'type': 'bagofwords',
+        'type': 'word2vec',
         'args': {},
         },
     'classifier': {
         # Type of the classifier to use, one of {'random-forest', 'neural-network', 'logistic-regression', 'naive-bayes-bagofwords', 'naive-bayes-word2vec'}
-        'type': 'naive-bayes-bagofwords', 
+        'type': 'random-forest', 
         'args': {
             'random-forest': {
-    				'n_estimators': 700,
+    				'n_estimators': 1000,
                  'n_jobs':       -1,
-                 'max_depth':    5,
+                 'max_depth':    10,
+                 'max_features': 'log2'
                 },
             'neural-network': {
     				'batch_size': 100,
@@ -119,13 +125,35 @@ _DEFAULT_CONFIG = {
                'alpha': 0.1,
                 },
             'naive-bayes-word2vec': {
-               'alpha': 1.0,
+               'alpha': 1.2,
         			 },
+             'convolutional': {
+                'n_units':      250,
+                'n_filters':    90,
+                'n_epochs':     4,
+                'verbose':      2,
+                'kernel_size':  6,
+                'batch_size':   128,
+                'use_bias':     True,
+                'loss':         'binary_crossentropy',
+                'optimizer':    Adam(lr=0.0021),
+                'metrics':      ['accuracy'],
+            },
+            # Options specific to feed forward neural network classifier.
+            'feed-forward': {
+                'n_hidden_units1': 100,
+                'n_hidden_units2': 100,
+                'batch_size':      32,
+                'n_epochs':        200,
+                'loss':            'binary_crossentropy',
+                'optimizer':       SGD(lr=0.01),
+                'metrics':         ['accuracy'],
+                },
 			},
     },
     'run': {
         # Type of the run, one of {'optimization', 'submission'}
-        'type': 'optimization',
+        'type': 'submission',
         'number_splits': 3,
         'remove_stopwords': True,
         'cache_clean': True,
@@ -141,7 +169,7 @@ _DEFAULT_CONFIG = {
         'dictionary': str(_PROJECT_ROOT / 'dictionary_pretrained.npy'),
         'retrain': False,
         # Averaging strategy to use, one of {'average', 'k-means'}
-        'strategy': 'average'
+        'strategy': 'k-means'
     },
     'average': {},
     'k-means': {
@@ -202,7 +230,7 @@ class LemmatizationWithPOSTagger(object):
 
         # lemmatization using pos tagg   
         # convert into feature set of [('What', 'What', ['WP']), ('can', 'can', ['MD']), ... ie [original WORD, Lemmatized word, POS tag]
-        pos_tokens = [ [(word, self.lemmatizer.lemmatize(word,self.get_wordnet_pos(pos_tag)), [pos_tag]) for (word,pos_tag) in pos] for pos in pos_tokens]
+        pos_tokens = [[(word, self.lemmatizer.lemmatize(word,self.get_wordnet_pos(pos_tag)), [pos_tag]) for (word,pos_tag) in pos] for pos in pos_tokens]
         return pos_tokens
 
 class ReviewPreprocessor(object):
@@ -484,7 +512,7 @@ def run_a_couple_of_folds(data: Tuple[Type[np.ndarray], Type[np.ndarray]],
         skf = StratifiedKFold(labels, n_folds=number_splits, shuffle=False)
         for idx, (train_index, test_index) in enumerate(skf):
             go(idx, train_index, test_index)
-
+            
     score, score_std = np.mean(scores), np.std(scores)
     logging.info(('Overall accuracy on left-out data from k-fold '
                   'cross-validation was {}').format(score))
@@ -673,7 +701,7 @@ class KMeansAverager(object):
         """
         (num_reviews,) = reviews.shape
         num_clusters = int(self.number_clusters_frac * num_reviews)
-        self.kmeans = KMeans(n_clusters=num_clusters, **self.kmeans_args)
+        self.kmeans = MiniBatchKMeans(n_clusters=num_clusters)
         
         vectors = np.array(list(model.values()))
         
@@ -758,8 +786,7 @@ class Word2VecVectorizer(object):
             dictionary[key] = self.model[key]
             
         return dictionary            
-        
-
+    
 def _make_vectorizer(conf):
     type_str = conf['vectorizer']['type']
     args = conf['vectorizer']['args']
@@ -817,7 +844,51 @@ def set_of_words(reviews):
     unique_words = set(flat_word_list)
         
     return unique_words 
+
+def review_to_words( raw_review ):
+    # Function to convert a raw review to a string of words
+    # The input is a single string (a raw movie review), and 
+    # the output is a single string (a preprocessed movie review)
+    #
+    # 1. Remove HTML
+    review_text = BeautifulSoup(raw_review).get_text() 
+    #
+    # 2. Remove non-letters        
+    letters_only = re.sub("[^a-zA-Z]", " ", review_text) 
+    #
+    # 3. Convert to lower case, split into individual words
+    words = letters_only.lower().split()                             
+    #
+    # 4. In Python, searching a set is much faster than searching
+    #   a list, so convert the stop words to a set
+    stops = set(stopwords.words("english"))                  
+    # 
+    # 5. Remove stop words
+    meaningful_words = [w for w in words if not w in stops]   
+    #
+    # 6. Join the words back into one string separated by space, 
+    # and return the result.
+    return( " ".join( meaningful_words ))   
+
+from nltk.corpus import stopwords
+
+def clean_test(train):
     
+    # Get the number of reviews based on the dataframe column size
+    num_reviews = train["review"].size
+    
+    # Initialize an empty list to hold the clean reviews
+    clean_train_reviews = []
+    
+    # Loop over each review; create an index i that goes from 0 to the length
+    # of the movie review list 
+    for i in range( 0, num_reviews ):
+        # Call our function for each one, and add the result to the list of
+        # clean reviews
+        clean_train_reviews.append( review_to_words( train["review"][i] ) )
+    
+    return clean_train_reviews
+
 def main():
     logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s',
                         level=logging.INFO)
@@ -843,14 +914,17 @@ def main():
         train_data = _read_data_from(conf['in']['labeled'])
         test_data = _read_data_from(conf['in']['test'])
         ids = np.array(test_data['id'], dtype=np.unicode_)
-        reviews = clean_up_reviews(train_data['review'],
+        '''reviews = clean_up_reviews(train_data['review'],
                                    conf['run']['remove_stopwords'],
-                                   not conf['run']['cache_clean'])
-        sentiments = np.array(train_data['sentiment'], dtype=np.bool_)
-        test_reviews = clean_up_reviews(test_data['review'],
+                                   not conf['run']['cache_clean'])'''
+        sentiments = train_data['sentiment']
+        '''test_reviews = clean_up_reviews(test_data['review'],
                                    conf['run']['remove_stopwords'],
-                                   not conf['run']['cache_clean'])
-
+                                   not conf['run']['cache_clean'])'''
+        
+        reviews = np.array(clean_test(train_data))
+        test_reviews = np.array(clean_test(test_data))
+        
         def mk_vectorizer():
             return _make_vectorizer(conf)
 
@@ -862,6 +936,8 @@ def main():
                        ids,
                        mk_vectorizer, mk_classifier,
                        conf['out']['result'])
+        
+        
     else:
         raise NotImplementedError()
 
