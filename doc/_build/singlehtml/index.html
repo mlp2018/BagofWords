@@ -67,6 +67,16 @@
 </div>
 <div class="section" id="simple-feedforward-neural-network">
 <h2>Simple feedforward neural network<a class="headerlink" href="#simple-feedforward-neural-network" title="Permalink to this headline">¶</a></h2>
+<p>This is a fully-connected feed-forward neural network. The network was optimized using word2vec as the vectorizer, with the simple averaging method.</p>
+<p>The following characteristics of the network were set in advance:
+* The two hidden layers used the Rectified Linear Units nonlinear activation function (ReLU).
+* The output layer consisted of two nodes and used the sigmoid activation function.
+* The optimizer was stochastic gradient descent.
+* The initialisation weights were randomly drawn from a uniform distribution.</p>
+<p>The following characteristics of the network were optimized:
+* Batch size: we compared batch sizes of 16, 32, 64 and 128 samples. We selected 32 as it was the best compromise between speed and accuracy.
+* Learning rate: we compared learning rates of 0.001, 0.01, 0.05 and 0.25. We obtained practically the same result for 0.01 and 0.05. The results for 0.001 and 0.25 were much were. We selected a learning rate of 0.01.
+* Number of nodes in the two hidden layers. We compared the following configurations: 10/10,  12/12, 16/10, 10/16. These numbers were chosen such that the total number of parameters to be estimated by the model was always at least three times smaller than the number of available training samples (also when applying 3-fold cross-validation). The results were very similar, but we selected the 16/10 configuration as it was marginally better than the others.</p>
 </div>
 <div class="section" id="convolutional-neural-network">
 <h2>Convolutional neural network<a class="headerlink" href="#convolutional-neural-network" title="Permalink to this headline">¶</a></h2>
