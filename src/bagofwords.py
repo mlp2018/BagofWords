@@ -176,8 +176,8 @@ _DEFAULT_CONFIG = {
     },
     # Options specific to feed forward neural network classifier.
     'feed-forward': {
-        'n_hidden_units1': 100,
-        'n_hidden_units2': 100,
+        'n_hidden_units1': 16,
+        'n_hidden_units2': 10,
         'batch_size':      32,
         'n_epochs':        200,
         'loss':            'binary_crossentropy',
