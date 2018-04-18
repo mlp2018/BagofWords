@@ -2,6 +2,9 @@
 
 # Copyright (C) 2018 Sophie Arana
 # Copyright (C) 2018 Johanna de Vos
+# Copyright (C) 2018 Pauline Lauron
+# Copyright (C) 2018 Andre Vargas
+# Copyright (C) 2018 Robert Goß
 # Copyright (C) 2018 Tom Westerhout
 # Copyright (C) 2014-2018 Angela Chapman
 #
