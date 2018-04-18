@@ -123,7 +123,7 @@ _DEFAULT_CONFIG = {
     'vectorizer': 'word2vec',
     # Type of the classifier to use, one of
     # {'random-forest', 'logistic-regression', 'feed-forward', 'convolutional'}
-    'classifier': 'random-forest',
+    'classifier': 'convolutional',
     # Options specific to the bagofwords vectorizer.
     'bagofwords': {},
     # Options specific to the word2vec vectorizer.
@@ -140,12 +140,12 @@ _DEFAULT_CONFIG = {
         # NOTE: Random Forest, Logistic Regression, and Feed Forward NN work
         # with 'average' and 'k-means'; Convolutional NN works __only__ with
         # 'dummy'.
-        'strategy':   'average',
+        'strategy':   'dummy',
     },
     # Options specific to the random forest classifier.
     'random-forest': {
         'n_estimators': 1000,
-        'n_jobs':       -1,
+        'n_jobs':       (-1),
         'max_depth':    10,
         'max_features': 'log2',
     },
@@ -901,8 +901,9 @@ class ConvNNClassifier(object):
 
     @staticmethod
     def _review_to_tensor(review, word2vec, max_words):
-        tensor = np.zeros((max_words,))  # ?????
-        for (i, word) in enumerate(review.split()):
+        tensor = np.full((max_words,), fill_value=max_words)  # ?????
+        for (i, word) in enumerate(filter(lambda x: x in word2vec,
+                                          review.split())):
             # TODO: The following `if` is ungly, fix it please!
             if i >= max_words:
                 break
@@ -1004,17 +1005,13 @@ def main():
     elif conf['run']['type'] == 'submission':
         train_data = _read_data_from(conf['in']['labeled'])
         test_data = _read_data_from(conf['in']['test'])
-        # [:100] # If we don't slice until :100, a ValueError is raised.
-        # Why does the test data need to have the same size as the training
-        # data?
         ids = np.array(test_data['id'], dtype=np.unicode_)
         reviews = clean_up_reviews(train_data['review'],
                                    conf['run']['remove_stopwords'],
                                    conf['in']['clean'])
         sentiments = np.array(train_data['sentiment'], dtype=np.bool_)
         test_reviews = clean_up_reviews(test_data['review'],
-                                        conf['run']['remove_stopwords'],
-                                        conf['in']['clean'])
+                                        conf['run']['remove_stopwords'])
 
         def mk_vectorizer():
             return _make_vectorizer(conf)
