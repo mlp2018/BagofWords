@@ -103,7 +103,7 @@ _DEFAULT_CONFIG = {
     # High-level algorithm specific options.
     'run': {
         # Type of the run, one of {'optimization', 'submission'}
-        'type':             'optimization',
+        'type':             'submission',
         # How many splits to use in the StratifiedKFold
         'number_splits':    3,
         # When preprocessing the reviews, should we remove the stopwords?
@@ -123,7 +123,7 @@ _DEFAULT_CONFIG = {
     'vectorizer': 'word2vec',
     # Type of the classifier to use, one of
     # {'random-forest', 'logistic-regression', 'feed-forward', 'convolutional'}
-    'classifier': 'convolutional',
+    'classifier': 'random-forest',
     # Options specific to the bagofwords vectorizer.
     'bagofwords': {},
     # Options specific to the word2vec vectorizer.
@@ -140,12 +140,14 @@ _DEFAULT_CONFIG = {
         # NOTE: Random Forest, Logistic Regression, and Feed Forward NN work
         # with 'average' and 'k-means'; Convolutional NN works __only__ with
         # 'dummy'.
-        'strategy':   'dummy',
+        'strategy':   'average',
     },
     # Options specific to the random forest classifier.
     'random-forest': {
-        'n_estimators': 100,
-        'n_jobs':       4,
+        'n_estimators': 1000,
+        'n_jobs':       -1,
+        'max_depth':    10,
+        'max_features': 'log2',
     },
     # Options specific to the logistic regression classifier.
     'logistic-regression': {
