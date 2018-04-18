@@ -43,6 +43,8 @@ from keras.models import Sequential
 from keras.optimizers import Adam, SGD
 import nltk.corpus
 import nltk.tokenize
+from nltk.corpus import wordnet
+from nltk.stem import WordNetLemmatizer
 import numpy as np
 import pandas as pd
 # from scipy.sparse import csc_matrix
@@ -222,6 +224,41 @@ def _read_data_from(path: str) -> pd.DataFrame:
     return pd.read_csv(path, header=0, delimiter='\t', quoting=3)
 
 
+class LemmatizationWithPOSTagger(object):
+    def __init__(self):
+        self.lemmatizer = nltk.WordNetLemmatizer()
+
+    def get_wordnet_pos(self, treebank_tag):
+        """
+        Convert Part of Speech Tags to comply with the expectations of wordnet
+        """
+        if treebank_tag.startswith('J'):
+            return wordnet.ADJ
+        elif treebank_tag.startswith('V'):
+            return wordnet.VERB
+        elif treebank_tag.startswith('N'):
+            return wordnet.NOUN
+        elif treebank_tag.startswith('R'):
+            return wordnet.ADV
+        else:
+            # As default pos in lemmatization is Noun
+            return wordnet.NOUN
+
+    def pos_tag(self, tokens):
+        """
+        Method to obtain POS-Tags
+
+        """
+        # find the pos tagginf for each tokens [('What', 'WP'), ('can', 'MD'), ('I', 'PRP') ....
+        pos_tokens = [nltk.pos_tag(token) for token in tokens]
+
+        # TODO: The following looks ugly...
+        # lemmatization using pos tagg
+        # convert into feature set of [('What', 'What', ['WP']), ('can', 'can', ['MD']), ... ie [original WORD, Lemmatized word, POS tag]
+        pos_tokens = [ [(word, self.lemmatizer.lemmatize(word,self.get_wordnet_pos(pos_tag)), [pos_tag]) for (word,pos_tag) in pos] for pos in pos_tokens]
+        return pos_tokens
+
+
 class ReviewPreprocessor(object):
     """
     :py:class:`ReviewPreprocessor` is an utility class for processing raw HTML
@@ -246,6 +283,11 @@ class ReviewPreprocessor(object):
         if remove_stopwords:
             words = [w for w in words if w not in
                      ReviewPreprocessor._stopwords]
+        # TODO: This is ugly... Is it even correct?
+        words = [words]
+        lemma_pos_token = LemmatizationWithPOSTagger().pos_tag(words)
+        words = [[x[1] for x in el] for el in lemma_pos_token]
+        words = words[0]
         return words
 
     @staticmethod
