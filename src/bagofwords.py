@@ -98,7 +98,8 @@ _DEFAULT_CONFIG = {
         'labeled':   str(_PROJECT_ROOT / 'data' / 'labeledTrainData.tsv'),
         'unlabeled': str(_PROJECT_ROOT / 'data' / 'unlabeledTrainData.tsv'),
         'test':      str(_PROJECT_ROOT / 'data' / 'testData.tsv'),
-        'clean':     str(_PROJECT_ROOT / 'data' / 'cleanReviews.tsv'),
+        'clean_train':     str(_PROJECT_ROOT / 'data' / 'cleanTrainReviews.tsv'),
+        'clean_test':     str(_PROJECT_ROOT / 'data' / 'cleanTestReviews.tsv'),
     },
     # Options that specify where to write the results to.
     'out': {
@@ -1053,10 +1054,11 @@ def main():
         ids = np.array(test_data['id'], dtype=np.unicode_)
         reviews = clean_up_reviews(train_data['review'],
                                    conf['run']['remove_stopwords'],
-                                   conf['in']['clean'])
+                                   conf['in']['clean_train'])
         sentiments = np.array(train_data['sentiment'], dtype=np.bool_)
         test_reviews = clean_up_reviews(test_data['review'],
-                                        conf['run']['remove_stopwords'])
+                                        conf['run']['remove_stopwords'],
+                                        conf['in']['clean_test'])
 
         def mk_vectorizer():
             return _make_vectorizer(conf)
