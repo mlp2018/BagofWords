@@ -735,6 +735,30 @@ class KMeansAverager(object):
                      .format(end - start))
         logging.info('Creating word→index map...')
         self.word2centroid = dict(zip(model.index2word, cluster_indices))
+        #print(self.word2centroid.keys())
+        #print(self.word2centroid.values())
+        print(type(self.word2centroid.values()))
+        
+        # For the first 10 clusters
+        for cluster in range(0,10):
+            #
+            # Print the cluster number  
+            print("\nCluster %d" % cluster)
+            #
+            # Find all of the words for that cluster number, and print them out
+            words = []
+            for i in range(0,len(self.word2centroid.values())):
+                if( list(self.word2centroid.values())[i] == cluster ):
+                    words.append(list(self.word2centroid.keys())[i])
+            print(words)
+        
+        '''
+        # Print complete dictionary
+        for x in self.word2centroid:
+            print(x)
+            print(self.word2centroid[x])
+        '''
+                
         return self.transform(reviews, model)
 
 
