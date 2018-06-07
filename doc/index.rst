@@ -20,10 +20,10 @@ In order to optimize the Random Forest classifier, we played with the following 
 
 Naive Bayes
 **********************
-This classifier is based on the Bayes’ Theorem. To optimize, we implement a search grid. 
+This classifier is based on the Bayes’ Theorem. To optimize, we implemented a search grid. 
 
-* For bag of word, we use the model MultinomialNB because we count how often word occurs in the reviews. We choose alpha equal to 0.1
-* For word2vec : we use the model BernoulliNB because we use feature vector with binary values. We choose alpha equal to 1.2
+* For the 'bagofwords' vectorizer, we used the model MultinomialNB, because had we counted how often the word occured in the reviews. We chose alpha to equal to 0.1.
+* For the 'word2vec' vectorizer, we used the model BernoulliNB, because we had used feature vectors with binary values. We chose alpha to equal to 1.2.
 
 Logistic regression
 **********************
@@ -48,7 +48,7 @@ The following characteristics of the network were set in advance:
 The following characteristics of the network were optimized:
 
 * Batch size: we compared batch sizes of 16, 32, 64 and 128 samples. We selected 32 as it was the best compromise between speed and accuracy.
-* Learning rate: we compared learning rates of 0.001, 0.01, 0.05 and 0.25. We obtained practically the same result for 0.01 and 0.05. The results for 0.001 and 0.25 were much were. We selected a learning rate of 0.01.
+* Learning rate: we compared learning rates of 0.001, 0.01, 0.05 and 0.25. We obtained practically the same result for 0.01 and 0.05. The results for 0.001 and 0.25 were much worse. We selected a learning rate of 0.01.
 * Number of nodes in the two hidden layers. We compared the following configurations: 10/10,  12/12, 16/10, 10/16. These numbers were chosen such that the total number of parameters to be estimated by the model was always at least three times smaller than the number of available training samples (also when applying 3-fold cross-validation). The results were very similar, but we selected the 16/10 configuration as it was marginally better than the others.
 
 Convolutional neural network
